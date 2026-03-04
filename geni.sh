@@ -35,17 +35,25 @@ properties:
     type: array
     items:
       type: object
+      oneOf:
+        - "required": ["patch_contents"]
+        - "required": ["file_contents"]
+      not:
+        required: ["patch_contents", "file_contents"]
       properties:
         path:
           type: string
           pattern: "^[a-zA-Z0-9_][a-zA-Z0-9_./-]*(/[a-zA-Z0-9_][a-zA-Z0-9_./-]*)*$"
           description:
             The path must be relative, and it may not include any hidden files.
-        contents:
+        patch_contents:
           type: string
           description:
-            The exact contents of the file to write. Do not write to a file present in "git ls-files" unless you were given that file as input. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them.
-            If the modified file would be greater than about '$__GENIUS__MAX_FILE_LINES', then suggest a plan for splitting the file into multiple files and only write the file if the user explicitly states they want to.
+            A unified diff describing the changes to make to the specified file. This field should be non-null when the changes are relatively localized in the file and so the diff is much smaller than the overall file size.
+        file_contents:
+          type: string
+          description:
+            The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them. This field should be non-null when many changes need to be made to many parts of the file, and so the diff would be very large.
   message:
     type: string
     description: |
@@ -229,30 +237,44 @@ function __GENIUS__process_response() {
         num_files=$(echo "$json_response" | jq '.files_to_write | length')
         for ((i=0; i<num_files; i++)); do
             path=$(echo "$json_response" | jq -r ".files_to_write[$i].path")
-            contents=$(echo "$json_response" | jq -r ".files_to_write[$i].contents")
+
+            # compute the new file contents;
+            # if the contents was given in the response, just extract from json;
+            # else (a diff was given in the response), then we compute file_contents from the diff
+            if echo "$json_response" | jq -e ".files_to_write[$i].file_contents != null" > /dev/null; then
+                file_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].file_contents")
+            else
+                patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
+                file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
+                if [ $? -ne 0 ]; then
+                    error "patch failed for '$path'"
+                fi
+            fi
+
+            # apply the changes
             if [ -e "$path" ]; then
                 action='edited'
-                diff_output=$(diff -u "$path" <(echo "$contents") | __GENIUS__cleandiff)
+                diff_output=$(diff -u "$path" <(echo "$file_contents") | __GENIUS__cleandiff)
 
                 # backup $path if dirty
                 dirty=false
                 if ! git ls-files --error-unmatch "$path" 2>/dev/null; then
-                    echo "WARNING: '$path' not in repo."
+                    warning "'$path' not in repo."
                     dirty=true
                 fi
                 if ! (git diff --quiet "$path" && git diff --cached --quiet "$path") ; then
-                    echo "WARNING: '$path' has uncommitted changes"
+                    warning "'$path' has uncommitted changes"
                     dirty=true
                 fi
                 if [ "$dirty" = "true" ]; then
                     temp=$(mktemp)
                     cat "$path" > "$temp"
-                    echo "WARNING: existing file will be overwritten"
-                    echo "WARNING: backup created at '$temp'"
+                    warning "existing file will be overwritten"
+                    warning "backup created at '$temp'"
                 fi
 
                 # edit file
-                echo "$contents" > "$path"
+                echo "$file_contents" > "$path"
                 git add "$path"
             else
                 action='created'
@@ -262,12 +284,6 @@ function __GENIUS__process_response() {
                 echo "$contents" > "$path"
                 git add "$path"
             fi
-
-            # display action summary
-            add_lines=$(echo "$diff_output" | grep -c '^+')
-            sub_lines=$(echo "$diff_output" | grep -c '^-')
-            #echo "$action: '$path' (+$add_lines -$sub_lines lines)"
-            #echo "$diff_output" | head -n $__GENIUS__MAX_DISPLAY_SIZE
         done
 
         # NOTE:
@@ -278,8 +294,8 @@ function __GENIUS__process_response() {
         # It just so happens that geni is both the vocative and genitive form of genius.
         msg=$(echo "$json_response" | jq -r .message)
         echo "$msg" | message
-        git commit --quiet -m "[geni] $msg"
-        __GENIUS__git_diff
+        #git commit --quiet -m "[geni] $msg"
+        #__GENIUS__git_diff
 
     # any other response_type, just output the message
     else
