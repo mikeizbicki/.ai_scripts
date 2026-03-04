@@ -7,7 +7,7 @@
 # This ensures that there will be no name conflicts with other variables when sourcing into the .bashrc file.
 
 __GENIUS__MAX_FILE_LINES=300
-__GENIUS__MAX_DISPLAY_SIZE=10
+__GENIUS__MAX_DISPLAY_SIZE=20
 
 ################################################################################
 # ensure llm_utils.sh available
@@ -36,7 +36,7 @@ properties:
     items:
       type: object
       properties:
-        path: 
+        path:
           type: string
           pattern: "^[a-zA-Z0-9_][a-zA-Z0-9_./-]*(/[a-zA-Z0-9_][a-zA-Z0-9_./-]*)*$"
           description:
@@ -68,6 +68,7 @@ You are a coding agent. You will write files to achieve the tasks that the user 
 
 \`\`\`$__GENIUS__RESPONSE_SCHEMA\`\`\`
 
+The response must be pure YAML; no markdown code blocks and no other explanations.
 Use the following information to help guide your response.
 
 \`\`\`
@@ -92,14 +93,30 @@ function message() {
     printf "\033[0m"
 }
 
-function warning() {
-    printf "\033[38;5;208mWARNING: "
+function print_color() {
+    local color="$1"
+    shift
+    printf "\033[38;5;%sm" "$color"
     if [ -z "$1" ]; then
         cat
     else
-        echo "$1"
+        echo "$*"
     fi
     printf "\033[0m"
+}
+
+function info() {
+    print_color 39 "$@"  # blue
+}
+
+function warning() {
+    printf "WARNING: " >&2
+    print_color 208 "$@" >&2  # orange
+}
+
+function error() {
+    printf "ERROR: " >&2
+    print_color 196 "$@" >&2  # red
 }
 
 function __GENIUS__ensure_git_sane() {
@@ -109,7 +126,7 @@ function __GENIUS__ensure_git_sane() {
 }
 
 function __GENIUS__git_diff() {
-    git show HEAD --format="" --stat --patch | awk '
+    fulldiff=$(git show HEAD --format="" --stat --patch | awk '
 /^ [^ ].*\|.*[+-]/ { stats[$1] = $0; next }
 /^ *[0-9]+ file/ { next }
 /^diff --git/ { file = $NF; sub(/b\//, "", file); if (stats[file]) print "\n" stats[file]; next }
@@ -118,7 +135,12 @@ function __GENIUS__git_diff() {
 /^-/  { printf "%4d -%s\n", n, substr($0,2) }
 /^\+/ { printf "%4d +%s\n", n++, substr($0,2) }
 /^ / { printf "%4d  %s\n", n++, substr($0,2) }
-'
+')
+    if [ "$(echo "$fulldiff" | wc -l)" -gt "$__GENIUS__MAX_DISPLAY_SIZE" ]; then
+        git show HEAD --format="" --stat
+    else
+        echo "$fulldiff"
+    fi
 }
 
 function __GENIUS__YAML2JSON() {
@@ -183,13 +205,20 @@ function __GENIUS__cleandiff() {
 }
 
 function __GENIUS__process_response() {
-    json_response=$(__GENIUS__YAML2JSON)
+    input=$(cat)
+
+    json_response=$(echo "$input" | __GENIUS__YAML2JSON)
     schema=$(echo "$__GENIUS__RESPONSE_SCHEMA" | __GENIUS__YAML2JSON)
 
     # validate schema
-    if ! jsonschema -i <(echo "$json_response") <(echo "$schema") >/dev/null 2>&1; then
-        echo "ERROR: llm response failed jsonschema check"
-        echo "$json_response" | warning
+    if ! (jsonschema -i <(echo "$json_response") <(echo "$schema")) >/dev/null 2>&1; then
+        echo "$input" > .geni.raw
+        echo "$json_response" > .geni.raw.json
+
+        error 'llm response failed jsonschema check'
+        error 'HINT: .geni.raw contains the raw llm output'
+        error 'HINT: .geni.raw.json contains the converted json'
+
         return
     fi
 
