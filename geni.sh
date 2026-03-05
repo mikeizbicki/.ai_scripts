@@ -152,7 +152,7 @@ function __GENIUS__git_diff() {
 }
 
 function __GENIUS__YAML2JSON() {
-    python3 -c 'import sys, yaml, json; json.dump(yaml.safe_load(sys.stdin), sys.stdout)'
+    python3 -c 'import sys, yaml, json; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' 2>/dev/null
 }
 
 __GENIUS__test1=$(cat <<EOF
@@ -214,25 +214,30 @@ function __GENIUS__cleandiff() {
 
 function __GENIUS__process_response() {
     input=$(cat)
+    echo "$input" > .geni.raw
+    echo "$json_response" > .geni.raw.json
 
     json_response=$(echo "$input" | __GENIUS__YAML2JSON)
+    if [ $? -ne 0 ]; then
+        error 'failed to parse llm output as YAML'
+        error 'HINT: .geni.raw contains the raw llm output'
+        error 'HINT: .geni.raw.json contains the converted json'
+        return 1
+    fi
     schema=$(echo "$__GENIUS__RESPONSE_SCHEMA" | __GENIUS__YAML2JSON)
 
     # validate schema
     if ! (jsonschema -i <(echo "$json_response") <(echo "$schema")) >/dev/null 2>&1; then
-        echo "$input" > .geni.raw
-        echo "$json_response" > .geni.raw.json
-
         error 'llm response failed jsonschema check'
         error 'HINT: .geni.raw contains the raw llm output'
         error 'HINT: .geni.raw.json contains the converted json'
-
-        return
+        return 1
     fi
 
     response_type=$(echo "$json_response" | jq -r .response_type)
 
     if [ "$response_type" = "write_files" ]; then
+        has_failure=false
         # loop over each file that we might write
         num_files=$(echo "$json_response" | jq '.files_to_write | length')
         for ((i=0; i<num_files; i++)); do
@@ -247,7 +252,14 @@ function __GENIUS__process_response() {
                 patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
                 file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
                 if [ $? -ne 0 ]; then
-                    error "patch failed for '$path'"
+                    warning "patch failed for '$path', using wiggle"
+                    file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
+                    if [ $? -ne 0 ]; then
+                        error 'wiggle was unable to apply patch'
+                        has_failure=true
+                    else
+                        warning 'wiggle applied patch successfully'
+                    fi
                 fi
             fi
 
@@ -294,8 +306,16 @@ function __GENIUS__process_response() {
         # It just so happens that geni is both the vocative and genitive form of genius.
         msg=$(echo "$json_response" | jq -r .message)
         echo "$msg" | message
-        #git commit --quiet -m "[geni] $msg"
-        #__GENIUS__git_diff
+        if [ "$has_failure" = "false" ]; then
+            git commit --quiet -m "[geni] $msg" 2>/dev/null 1>/dev/null
+            if [ $? -ne 0 ]; then
+                error 'git commit failed'
+            else
+                __GENIUS__git_diff
+            fi
+        else
+            error 'not running git commit'
+        fi
 
     # any other response_type, just output the message
     else
