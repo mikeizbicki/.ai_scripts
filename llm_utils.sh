@@ -29,6 +29,10 @@ function llm_interactive() {
     llm_wrapper "$@" | info
 }
 
+function llm_pipe() {
+    pipe_helper | llm_wrapper "$@"
+}
+
 function llm_wrapper() {(
 
     ####################
@@ -139,6 +143,27 @@ function print_color() {
     printf "\033[38;5;%sm" "$color"
     if [ -z "$1" ]; then
         while IFS= read -r line || [[ -n "$line" ]]; do
+
+function pipe_helper() {
+    print_color 39 "Call initiated" >&2
+    
+    local line_count=0
+    local first_line=true
+    
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$first_line" == true ]]; then
+            printf "\033[38;5;39m%s\033[0m" "Receiving contents " >&2
+            first_line=false
+        fi
+        
+        echo "$line"
+        ((line_count++))
+        if (( line_count % 10 == 0 )); then
+            printf "\033[38;5;39m.\033[0m" >&2
+        fi
+    done
+    echo >&2
+}
             printf "\033[38;5;%sm%s\033[0m\n" "$color" "$line"
         done
     else
@@ -160,4 +185,3 @@ function error() {
     printf "ERROR: " >&2
     print_color 196 "$@" >&2  # red
 }
-
