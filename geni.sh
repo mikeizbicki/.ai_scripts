@@ -43,9 +43,9 @@ properties:
       properties:
         path:
           type: string
-          pattern: "^[a-zA-Z0-9_][a-zA-Z0-9_./-]*(/[a-zA-Z0-9_][a-zA-Z0-9_./-]*)*$"
+          pattern: "^[a-zA-Z0-9_.][a-zA-Z0-9_./-]*(/[a-zA-Z0-9_.][a-zA-Z0-9_./-]*)*$"
           description:
-            The path must be relative, and it may not include any hidden files.
+            The path must be relative.
         patch_contents:
           type: string
           description:
@@ -214,14 +214,15 @@ function __GENIUS__cleandiff() {
 
 function __GENIUS__process_response() {
     input=$(cat)
-    echo "$input" > .geni.raw
-    echo "$json_response" > .geni.raw.json
+    git_dir=$(git rev-parse --git-dir)
+    echo "$input" > "$git_dir"/.geni.raw
+    echo "$json_response" > "$git_dir"/.geni.raw.json
 
     json_response=$(echo "$input" | __GENIUS__YAML2JSON)
     if [ $? -ne 0 ]; then
         error 'failed to parse llm output as YAML'
-        error 'HINT: .geni.raw contains the raw llm output'
-        error 'HINT: .geni.raw.json contains the converted json'
+        error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
+        error "HINT: '$git_dir/.geni.raw.json' contains the converted json"
         return 1
     fi
     schema=$(echo "$__GENIUS__RESPONSE_SCHEMA" | __GENIUS__YAML2JSON)
@@ -242,6 +243,8 @@ function __GENIUS__process_response() {
         num_files=$(echo "$json_response" | jq '.files_to_write | length')
         for ((i=0; i<num_files; i++)); do
             path=$(echo "$json_response" | jq -r ".files_to_write[$i].path")
+
+            mkdir -p "$(dirname "$path")"
 
             # compute the new file contents;
             # if the contents was given in the response, just extract from json;
@@ -290,10 +293,10 @@ function __GENIUS__process_response() {
                 git add "$path"
             else
                 action='created'
-                diff_output=$(diff -u /dev/null <(echo "$contents") | __GENIUS__cleandiff)
+                diff_output=$(diff -u /dev/null <(echo "$file_contents") | __GENIUS__cleandiff)
 
                 # create file
-                echo "$contents" > "$path"
+                echo "$file_contents" > "$path"
                 git add "$path"
             fi
         done
