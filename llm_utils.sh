@@ -1,21 +1,95 @@
-# This file should be sourced from .bashrc
+#!/bin/bash
+# This file should be sourced to get access to the functions in the shell
 
-function fancyllm() {(
-    #model=anthropic/claude-sonnet-4-0
-    #cost_input=3
-    #cost_output=15
+# this is a CSV format where the columns are:
+# model_name, input_cost (per 1_000_000 tokens), output_cost (per 1_000_000 tokens)
+MODEL_PRICES="
+opus-4.6        , 5.00   , 25.00
+opus-4.5        , 5.00   , 25.00
+sonnet-4.5      , 2.00   , 15.00
+sonnet-4.0      , 3.00   , 15.00
+haiku-4.5       , 1.00   ,  5.00
+gpt-5.4         , 2.50   , 15.00
+gpt-5.2	        , 1.75	 , 14.00
+gpt-5.1	        , 1.25	 , 10.00
+gpt-5-mini	    , 0.25	 ,  2.00
+gpt-5-nano	    , 0.05	 ,  0.40
+gpt-4o          , 2.50   , 10.00
+gpt-4o-mini     , 0.15   ,  0.60
+"
 
-    model=anthropic/claude-opus-4-5-20251101
-    cost_input=5
-    cost_output=25
+alias haiku="llm_interactive -m claude-haiku-4.5"
+alias sonnet="llm_interactive -m claude-sonnet-4.5"
+alias opus="llm_interactive -m claude-opus-4.5"
+alias gpt="llm_interactive -m gpt-5.2"
+alias gpt-mini="llm_interactive -m gpt-5-mini"
+alias gpt-nano="llm_interactive -m gpt-5-nano"
 
-    #model=anthropic/claude-sonnet-4-5-20251101
-    #cost_input=2
-    #cost_output=15
-#
-    #model=anthropic/claude-haiki-4-5-20251101
-    #cost_input=1
-    #cost_output=5
+function llm_interactive() {
+    llm_wrapper "$@" | info
+}
+
+function llm_wrapper() {(
+
+    ####################
+    # STEP1:
+    # first we do bash-magic to parse arguments
+    # and calculate the pricing for the selected model
+    ####################
+
+    # parse arguments to figure out model
+    model="anthropic/claude-opus-4-5-20251101"
+    args=()
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -m=*|--model=*)
+                model="${1#*=}"
+                shift
+                ;;
+            -m|--model)
+                model="$2"
+                shift 2
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+    set -- "${args[@]}"
+
+    # Lookup pricing for model
+    cost_input=0
+    cost_output=0
+    matched_model=""
+    max_cost=0
+    match_count=0
+
+    while IFS=, read -r m ci co; do
+        [[ -z "$m" ]] && continue
+        m_trimmed=$(echo $m)
+        if [[ "$model" == *"$m_trimmed"* ]]; then
+            ((match_count++))
+            total_cost=$(echo "$ci + $co" | bc -l)
+            if (( $(echo "$total_cost > $max_cost" | bc -l) )); then
+                max_cost="$total_cost"
+                cost_input="$ci"
+                cost_output="$co"
+                matched_model="$m"
+            fi
+        fi
+    done <<< "$MODEL_PRICES"
+
+    if [[ $match_count -gt 1 ]]; then
+        echo "Warning: multiple pricing matches for '$model', using most expensive: $matched_model" >&2
+    elif [[ $match_count -eq 0 ]]; then
+        echo "Warning: unknown model '$model', cost will show as \$0" >&2
+    fi
+
+    ####################
+    # STEP2:
+    # Now we do the actual interesting LLM stuff
+    ####################
 
     system_prompt="Keep your response short, between 1-20 lines. Focus on a high signal to noise ratio. If the question is about a computer, respond for the following system: $(uname -a)."
 
@@ -53,5 +127,37 @@ function fancyllm() {(
 
     return $exit_code
 ) # the function is enclosed in a subshell to trigger the TRAP for cleanup
+}
+
+################################################################################
+# misc util functions
+################################################################################
+
+function print_color() {
+    local color="$1"
+    shift
+    printf "\033[38;5;%sm" "$color"
+    if [ -z "$1" ]; then
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            printf "\033[38;5;%sm%s\033[0m\n" "$color" "$line"
+        done
+    else
+        echo "$*"
+    fi
+    printf "\033[0m"
+}
+
+function info() {
+    print_color 39 "$@"  # blue
+}
+
+function warning() {
+    printf "WARNING: " >&2
+    print_color 208 "$@" >&2  # orange
+}
+
+function error() {
+    printf "ERROR: " >&2
+    print_color 196 "$@" >&2  # red
 }
 

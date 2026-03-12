@@ -1,6 +1,5 @@
+#!/bin/bash
 # This file should be sourced from .bashrc
-
-
 
 # NOTE:
 # All variables should be prefixed with __GENIUS__.
@@ -333,5 +332,5 @@ function geni() {
         warning 'git repo dirty'
         #return
     fi
-    fancyllm -x -s "$(geni_prompt)" "$@" | __GENIUS__process_response
+    llm_wrapper -x -s "$(geni_prompt)" "$@" | __GENIUS__process_response
 }
