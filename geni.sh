@@ -229,8 +229,8 @@ function __GENIUS__process_response() {
     # validate schema
     if ! (jsonschema -i <(echo "$json_response") <(echo "$schema")) >/dev/null 2>&1; then
         error 'llm response failed jsonschema check'
-        error 'HINT: .geni.raw contains the raw llm output'
-        error 'HINT: .geni.raw.json contains the converted json'
+        error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
+        error "HINT: '$git_dir/.geni.raw.json' contains the converted json"
         return 1
     fi
 
@@ -332,5 +332,5 @@ function geni() {
         warning 'git repo dirty'
         #return
     fi
-    llm_wrapper -x -s "$(geni_prompt)" "$@" | __GENIUS__process_response
+    llm_pipe -x -s "$(geni_prompt)" "$@" | __GENIUS__process_response
 }

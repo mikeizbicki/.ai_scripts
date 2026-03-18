@@ -30,7 +30,7 @@ function llm_interactive() {
 }
 
 function llm_pipe() {
-    pipe_helper | llm_wrapper "$@"
+    llm_wrapper "$@" | pipe_helper
 }
 
 function llm_wrapper() {(
@@ -42,7 +42,7 @@ function llm_wrapper() {(
     ####################
 
     # parse arguments to figure out model
-    model="anthropic/claude-opus-4-5-20251101"
+    model="claude-opus-4.5"
     args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -110,7 +110,7 @@ function llm_wrapper() {(
     # But it is possible that a concurrently running llm process terminates after the llm and before llm logs.
     # This shouldn't be a major concern in practice because this function is designed to be run interactively by a user and not inside a script.
 
-    #echo "$stderr_content" | xclip -selection clipboard
+    echo "$stderr_content" | xclip -selection clipboard
 
     # Try to extract token usage from stderr
     if [[ $stderr_content =~ Token\ usage:\ ([0-9,]+)\ input,\ ([0-9,]+)\ output ]]; then
@@ -137,18 +137,12 @@ function llm_wrapper() {(
 # misc util functions
 ################################################################################
 
-function print_color() {
-    local color="$1"
-    shift
-    printf "\033[38;5;%sm" "$color"
-    if [ -z "$1" ]; then
-        while IFS= read -r line || [[ -n "$line" ]]; do
-
 function pipe_helper() {
     print_color 39 "Call initiated" >&2
     
     local line_count=0
     local first_line=true
+    local output=""
     
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$first_line" == true ]]; then
@@ -156,14 +150,22 @@ function pipe_helper() {
             first_line=false
         fi
         
-        echo "$line"
+        output+="$line"$'\n'
         ((line_count++))
         if (( line_count % 10 == 0 )); then
             printf "\033[38;5;39m.\033[0m" >&2
         fi
     done
     echo >&2
+    echo "$output"
 }
+
+function print_color() {
+    local color="$1"
+    shift
+    printf "\033[38;5;%sm" "$color"
+    if [ -z "$1" ]; then
+        while IFS= read -r line || [[ -n "$line" ]]; do
             printf "\033[38;5;%sm%s\033[0m\n" "$color" "$line"
         done
     else
