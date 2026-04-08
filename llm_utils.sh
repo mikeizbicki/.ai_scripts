@@ -30,7 +30,7 @@ function llm_interactive() {
 }
 
 function llm_pipe() {
-    llm_wrapper "$@" | pipe_helper
+    llm_wrapper "$@" #| pipe_helper
 }
 
 function llm_wrapper() {(
@@ -110,7 +110,7 @@ function llm_wrapper() {(
     # But it is possible that a concurrently running llm process terminates after the llm and before llm logs.
     # This shouldn't be a major concern in practice because this function is designed to be run interactively by a user and not inside a script.
 
-    echo "$stderr_content" | xclip -selection clipboard
+    #echo "$stderr_content" | xclip -selection clipboard
 
     # Try to extract token usage from stderr
     if [[ $stderr_content =~ Token\ usage:\ ([0-9,]+)\ input,\ ([0-9,]+)\ output ]]; then
@@ -163,15 +163,16 @@ function pipe_helper() {
 function print_color() {
     local color="$1"
     shift
-    printf "\033[38;5;%sm" "$color"
     if [ -z "$1" ]; then
         while IFS= read -r line || [[ -n "$line" ]]; do
             printf "\033[38;5;%sm%s\033[0m\n" "$color" "$line"
+            printf "\033[0m"
         done
     else
+        printf "\033[38;5;%sm" "$color"
         echo "$*"
+        printf "\033[0m"
     fi
-    printf "\033[0m"
 }
 
 function info() {
