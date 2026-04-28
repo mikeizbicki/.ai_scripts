@@ -16,6 +16,7 @@ gpt-5-mini	    , 0.25	 ,  2.00
 gpt-5-nano	    , 0.05	 ,  0.40
 gpt-4o          , 2.50   , 10.00
 gpt-4o-mini     , 0.15   ,  0.60
+groq            , 0.00   ,  0.00
 "
 
 alias haiku="llm_interactive -m claude-haiku-4.5"
@@ -24,16 +25,20 @@ alias opus="llm_interactive -m claude-opus-4.5"
 alias gpt="llm_interactive -m gpt-5.2"
 alias gpt-mini="llm_interactive -m gpt-5-mini"
 alias gpt-nano="llm_interactive -m gpt-5-nano"
+alias groq="llm_interactive -m groq/llama-3.3-70b-versatile"
 
 function llm_interactive() {
-    llm_wrapper "$@" | info
-}
-
-function llm_pipe() {
-    llm_wrapper "$@" | pipe_helper
+    # highlight llm output in blue;
+    # this makes it easy to skim a terminal session to find llm output
+    printf "${__BLUE}"
+    llm_wrapper "$@"
+    printf "${__RESET}"
 }
 
 function llm_wrapper() {(
+    # this function wraps simonw's llm function so that it also prints
+    # the amount of money used by the call to stderr;
+    # otherwise, the functionality should be exactly the same
 
     ####################
     # STEP1:
@@ -41,8 +46,18 @@ function llm_wrapper() {(
     # and calculate the pricing for the selected model
     ####################
 
-    # parse arguments to figure out model
-    model="claude-opus-4.5"
+    # parse arguments to figure out model;
+    # 
+    # NOTE:
+    # this is a bit complicated code here, but we need this code in order to
+    # figure out the correct pricing of the model and to maintain syntactic
+    # compatibility with the llm command.
+    #
+    # NOTE:
+    # the idea is we start with the default model from the llm command,
+    # then we walk through each of the command line args,
+    # and update the model variable if any of them specify the model
+    model="$(llm models | grep Default: | sed 's/.*: //')"
     args=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
@@ -62,7 +77,7 @@ function llm_wrapper() {(
     done
     set -- "${args[@]}"
 
-    # Lookup pricing for model
+    # lookup pricing for model
     cost_input=0
     cost_output=0
     matched_model=""
@@ -119,7 +134,7 @@ function llm_wrapper() {(
         cost_input=$(echo "scale=10; $cost_input * $input_tokens / 1000000" | bc -l)
         cost_output=$(echo "scale=10; $cost_output * $output_tokens / 1000000" | bc -l)
         cost_total=$(echo "scale=10; $cost_input + $cost_output" | bc -l)
-        printf "\ncost: $%.4f (input: $%0.4f, output: $%0.4f) --cid=$latest_cid\n" "$cost_total" "$cost_input" "$cost_output" >&2
+        printf "${__RESET}\ncost: $%.4f (input: $%0.4f, output: $%0.4f) --cid=$latest_cid\n" "$cost_total" "$cost_input" "$cost_output" >&2
     else
         # If pattern doesn't match, display the stderr content
         if [[ -n $stderr_content ]]; then
@@ -137,51 +152,17 @@ function llm_wrapper() {(
 # misc utils
 ################################################################################
 
-function pipe_helper() {
-    # some functions take a long time to generate their output;
-    # this helper can be used to monitor the progress of these functions;
-    # it prints a . to stderr periodically as it receives lines from stdin
-    printf "request sent... " >&2
-    
-    local line_count=0
-    local first_line=true
-    local output=""
-    
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        if [[ "$first_line" == true ]]; then
-            printf "receiving..." >&2
-            first_line=false
-        fi
-        
-        output+="$line"$'\n'
-        ((line_count++))
-        if (( line_count % 10 == 0 )); then
-            printf '.' >&2
-        fi
-    done
-    echo >&2
-    echo "$output"
-}
-
 __BLUE='\033[38;5;39m'
 __ORANGE='\033[38;5;208m'
 __RED='\033[38;5;196m'
 __RESET='\033[0m'
 
-function info() {
-    if [ -z "$1" ]; then
-        printf "${__BLUE}%s${__RESET}\n" "$(cat)"
-    else
-        printf "${__BLUE}%s${__RESET}\n" "$*"
-    fi
-}
-
 function warning() {
+    printf "${__ORANGE}WARNING: %s${__RESET}\n" "$*"
 }
 
 function error() {
-    printf "ERROR: " >&2
-    print_color 196 "$@" >&2  # red
+    printf "${__RED}ERROR: %s${__RESET}\n" "$*"
 }
 
 ################################################################################

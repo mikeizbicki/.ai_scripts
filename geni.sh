@@ -8,11 +8,18 @@
 __GENIUS__MAX_FILE_LINES=300
 __GENIUS__MAX_DISPLAY_SIZE=20
 
-################################################################################
 # ensure llm_utils.sh available
-################################################################################
-
 source "$(dirname "${BASH_SOURCE[0]}")/llm_utils.sh"
+
+# geni is the main public interface
+function geni() {
+    # geni will be automatically making commits,
+    # so we want git in a sane state before running
+    if ! __GENIUS__ensure_git_sane; then
+        warning 'git repo dirty'
+    fi
+    llm_wrapper -s "$(geni_prompt)" "$@" | pipe_helper | __GENIUS__process_response
+}
 
 ################################################################################
 # construct the system prompt
@@ -104,11 +111,11 @@ EOF
 }
 
 ################################################################################
-# construct the system prompt
+# process the output of the LLM
 ################################################################################
 
-function message() {
-    printf "${__BLUE}%s${__RESET}\n" "$(cat)"
+function __GENIUS__YAML2JSON() {
+    python3 -c 'import sys, yaml, json; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' 2>/dev/null
 }
 
 function __GENIUS__ensure_git_sane() {
@@ -134,53 +141,6 @@ function __GENIUS__git_diff() {
         echo "$fulldiff"
     fi
 }
-
-function __GENIUS__YAML2JSON() {
-    python3 -c 'import sys, yaml, json; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' 2>/dev/null
-}
-
-__GENIUS__test1=$(cat <<EOF
-response_type: answer
-files_to_write: []
-message: |
-  Based on the files listed, this project appears to be a configuration and scripts setup primarily focused on a Linux environment. The presence of xmonad configuration files suggests that it is likely tailored for a custom tiling window manager setup. Additionally, the existence of various scripts for networking (like VPN and SSHFS) and potentially for dual screen setups indicates that this project may be intended to enhance productivity and manage system preferences for a developer or power user working with multiple displays and remote connections.
-EOF
-)
-
-__GENIUS__test2=$(cat <<EOF
-response_type: "write_files"
-files_to_write:
-  - path: "hello.md"
-    contents: |
-      # Exemplum
-      
-      *salve munde*
-  - path: "hello.html"
-    contents: |
-        <html>
-        <head>
-        <title>Exemplum</title>
-        </head>
-        <body>
-        <h1>Exemplum</h1>
-        <p><em>salve munde</em></p>
-        </body>
-        </html>
-message: "Created files hello.md and hello.html."
-EOF
-)
-
-__GENIUS__test3=$(cat <<EOF
-response_type: "write_files"
-files_to_write:
-  - path: "../hello.md" # directory traversals should fail json schema test
-    contents: |
-      # Exemplum
-      
-      *salve munde*
-message: "Created files hello.md and hello.html."
-EOF
-)
 
 function __GENIUS__cleandiff() {
     awk '
@@ -292,7 +252,7 @@ function __GENIUS__process_response() {
         # (to say that this commit belongs to "genius").
         # It just so happens that geni is both the vocative and genitive form of genius.
         msg=$(echo "$json_response" | jq -r .message)
-        echo "$msg" | message
+        echo -e "${__BLUE}$msg${__RESET}"
         if [ "$has_failure" = "false" ]; then
             git commit --quiet -m "[geni] $msg" 2>/dev/null 1>/dev/null
             if [ $? -ne 0 ]; then
@@ -307,13 +267,32 @@ function __GENIUS__process_response() {
     # any other response_type, just output the message
     else
         msg=$(echo "$json_response" | jq -r .message)
-        echo "$msg" | message
+        echo -e "${__BLUE}$msg${__RESET}"
     fi
 }
 
-function geni() {
-    if ! __GENIUS__ensure_git_sane; then
-        warning 'git repo dirty'
-    fi
-    llm_pipe -s "$(geni_prompt)" "$@" | __GENIUS__process_response
+function pipe_helper() {
+    # some functions take a long time to generate their output;
+    # this helper can be used to monitor the progress of these functions;
+    # it prints a . to stderr periodically as it receives lines from stdin
+    printf "request sent... " >&2
+    
+    local line_count=0
+    local first_line=true
+    local output=""
+    
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$first_line" == true ]]; then
+            printf "receiving..." >&2
+            first_line=false
+        fi
+        
+        output+="$line"$'\n'
+        ((line_count++))
+        if (( line_count % 10 == 0 )); then
+            printf '.' >&2
+        fi
+    done
+    echo >&2
+    echo "$output"
 }
