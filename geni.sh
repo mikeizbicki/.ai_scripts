@@ -108,35 +108,7 @@ EOF
 ################################################################################
 
 function message() {
-    printf "\033[94m"
-    cat
-    printf "\033[0m"
-}
-
-function print_color() {
-    local color="$1"
-    shift
-    printf "\033[38;5;%sm" "$color"
-    if [ -z "$1" ]; then
-        cat
-    else
-        echo "$*"
-    fi
-    printf "\033[0m"
-}
-
-function info() {
-    print_color 39 "$@"  # blue
-}
-
-function warning() {
-    printf "WARNING: " >&2
-    print_color 208 "$@" >&2  # orange
-}
-
-function error() {
-    printf "ERROR: " >&2
-    print_color 196 "$@" >&2  # red
+    printf "${__BLUE}%s${__RESET}\n" "$(cat)"
 }
 
 function __GENIUS__ensure_git_sane() {

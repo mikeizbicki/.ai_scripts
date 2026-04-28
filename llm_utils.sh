@@ -163,28 +163,20 @@ function pipe_helper() {
     echo "$output"
 }
 
-function print_color() {
-    local color="$1"
-    shift
+__BLUE='\033[38;5;39m'
+__ORANGE='\033[38;5;208m'
+__RED='\033[38;5;196m'
+__RESET='\033[0m'
+
+function info() {
     if [ -z "$1" ]; then
-        while IFS= read -r line || [[ -n "$line" ]]; do
-            printf "\033[38;5;%sm%s\033[0m\n" "$color" "$line"
-            printf "\033[0m"
-        done
+        printf "${__BLUE}%s${__RESET}\n" "$(cat)"
     else
-        printf "\033[38;5;%sm" "$color"
-        echo "$*"
-        printf "\033[0m"
+        printf "${__BLUE}%s${__RESET}\n" "$*"
     fi
 }
 
-function info() {
-    print_color 39 "$@"  # blue
-}
-
 function warning() {
-    printf "WARNING: " >&2
-    print_color 208 "$@" >&2  # orange
 }
 
 function error() {
