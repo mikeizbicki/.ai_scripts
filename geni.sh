@@ -15,9 +15,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/llm_utils.sh"
 function geni() {
     # geni will be automatically making commits,
     # so we want git in a sane state before running
-    if ! __GENIUS__ensure_git_sane; then
+    if git status --porcelain | grep -q '^[MADRC]'; then
+        error 'the staging area is non-empty'
+        return 1
+    fi
+    if git status --porcelain | grep -Eq '^(\?\?|.[MD])'; then
         warning 'git repo dirty'
     fi
+
     llm_wrapper -s "$(geni_prompt)" "$@" | pipe_helper | __GENIUS__process_response
 }
 
@@ -117,13 +122,23 @@ EOF
 ################################################################################
 
 function __GENIUS__YAML2JSON() {
-    python3 -c 'import sys, yaml, json; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' 2>/dev/null
-}
+    python3 -c '
+import sys, yaml, json, re
 
-function __GENIUS__ensure_git_sane() {
-    if ! [ -z "$(git status --porcelain)" ]; then
-        return 1
-    fi
+raw = sys.stdin.read()
+
+# Try to extract from markdown code blocks (matched pairs)
+match = re.search(r"```(?:ya?ml)?\s*\n(.*?)\n```", raw, re.DOTALL | re.IGNORECASE)
+if match:
+    raw = match.group(1)
+else:
+    # Handle uneven code block - discard everything after single ```
+    if "```" in raw:
+        raw = raw.split("```")[0]
+
+raw = raw.strip()
+json.dump(yaml.safe_load(raw), sys.stdout)
+' 2>/dev/null
 }
 
 function __GENIUS__git_diff() {
@@ -219,7 +234,7 @@ function __GENIUS__process_response() {
 
                 # backup $path if dirty
                 dirty=false
-                if ! git ls-files --error-unmatch "$path" 2>/dev/null; then
+                if ! git ls-files --error-unmatch "$path" 2>/dev/null >/dev/null; then
                     warning "'$path' not in repo."
                     dirty=true
                 fi
@@ -277,7 +292,7 @@ function pipe_helper() {
     # some functions take a long time to generate their output;
     # this helper can be used to monitor the progress of these functions;
     # it inspects the YAML stream to show file write progress
-    printf "request sent... " >&2
+    printf "${__ORANGE}request sent... " >&2
     
     local first_line=true
     local output=""
@@ -306,20 +321,18 @@ function pipe_helper() {
         
         if [[ "$in_files_section" == true ]]; then
             # Capture path
-            if [[ "$line" =~ ^[[:space:]]+path:[[:space:]]*(.+)$ ]]; then
+            if [[ "$line" =~ ^[[:space:]]+-?[[:space:]]*path:[[:space:]]*(.+)$ ]]; then
                 current_path="${BASH_REMATCH[1]}"
             fi
             
             # Detect file_contents (full write)
             if [[ "$line" =~ ^[[:space:]]+file_contents: ]]; then
-                printf "\n  %s (full)" "$current_path" >&2
-                current_path=""
+                printf " $current_path(full)..." >&2
             fi
             
             # Detect patch_contents (patch)
             if [[ "$line" =~ ^[[:space:]]+patch_contents: ]]; then
-                printf "\n  %s (patch)" "$current_path" >&2
-                current_path=""
+                printf " $current_path(patch)..." >&2
             fi
         fi
     done

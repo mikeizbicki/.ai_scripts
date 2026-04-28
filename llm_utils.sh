@@ -134,7 +134,7 @@ function llm_wrapper() {(
         cost_input=$(echo "scale=10; $cost_input * $input_tokens / 1000000" | bc -l)
         cost_output=$(echo "scale=10; $cost_output * $output_tokens / 1000000" | bc -l)
         cost_total=$(echo "scale=10; $cost_input + $cost_output" | bc -l)
-        printf "${__RESET}\ncost: $%.4f (input: $%0.4f, output: $%0.4f) --cid=$latest_cid\n" "$cost_total" "$cost_input" "$cost_output" >&2
+        printf "${__ORANGE}\ncost: $%.4f (input: $%0.4f, output: $%0.4f) --cid=$latest_cid\n${__RESET}" "$cost_total" "$cost_input" "$cost_output" >&2
     else
         # If pattern doesn't match, display the stderr content
         if [[ -n $stderr_content ]]; then
