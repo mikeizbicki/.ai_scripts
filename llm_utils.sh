@@ -30,7 +30,7 @@ function llm_interactive() {
 }
 
 function llm_pipe() {
-    llm_wrapper "$@" #| pipe_helper
+    llm_wrapper "$@" | pipe_helper
 }
 
 function llm_wrapper() {(
@@ -119,7 +119,7 @@ function llm_wrapper() {(
         cost_input=$(echo "scale=10; $cost_input * $input_tokens / 1000000" | bc -l)
         cost_output=$(echo "scale=10; $cost_output * $output_tokens / 1000000" | bc -l)
         cost_total=$(echo "scale=10; $cost_input + $cost_output" | bc -l)
-        printf "cost: $%.4f (input: $%0.4f, output: $%0.4f) --cid=$latest_cid\n" "$cost_total" "$cost_input" "$cost_output" >&2
+        printf "\ncost: $%.4f (input: $%0.4f, output: $%0.4f) --cid=$latest_cid\n" "$cost_total" "$cost_input" "$cost_output" >&2
     else
         # If pattern doesn't match, display the stderr content
         if [[ -n $stderr_content ]]; then
@@ -134,11 +134,14 @@ function llm_wrapper() {(
 }
 
 ################################################################################
-# misc util functions
+# misc utils
 ################################################################################
 
 function pipe_helper() {
-    print_color 39 "Call initiated" >&2
+    # some functions take a long time to generate their output;
+    # this helper can be used to monitor the progress of these functions;
+    # it prints a . to stderr periodically as it receives lines from stdin
+    printf "request sent... " >&2
     
     local line_count=0
     local first_line=true
@@ -146,14 +149,14 @@ function pipe_helper() {
     
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$first_line" == true ]]; then
-            printf "\033[38;5;39m%s\033[0m" "Receiving contents " >&2
+            printf "receiving..." >&2
             first_line=false
         fi
         
         output+="$line"$'\n'
         ((line_count++))
         if (( line_count % 10 == 0 )); then
-            printf "\033[38;5;39m.\033[0m" >&2
+            printf '.' >&2
         fi
     done
     echo >&2
@@ -188,3 +191,15 @@ function error() {
     printf "ERROR: " >&2
     print_color 196 "$@" >&2  # red
 }
+
+################################################################################
+# sanity checks
+################################################################################
+
+function __check_dependencies() {
+    local tools=(llm files-to-prompt ttok jq bc jsonschema python3 wiggle patch)
+    for tool in "${tools[@]}"; do
+        command -v "$tool" &>/dev/null || warning ".ai_scripts missing dependency: $tool"
+    done
+}
+__check_dependencies

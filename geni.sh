@@ -29,7 +29,7 @@ properties:
       If "write_files", then files_to_write must have at least one entry.
       If "more_info_needed" or "answer", then files_to_write should be empty.
       Select "answer" if the user asked a question and you are answering the question.
-      Select "more_info_needed" if you need more information to either write files of answer the question.
+      Select "more_info_needed" if you need more information to either write files or answer the question.
   files_to_write:
     type: array
     items:
@@ -72,18 +72,31 @@ $(cat "AGENTS.md")"
     fi
     cat <<EOF
 You are a coding agent. You will write files to achieve the tasks that the user specifies in their queries. Your response should always be in pure YAML and conform to the following schema:
-
 \`\`\`$__GENIUS__RESPONSE_SCHEMA\`\`\`
 
 The response must be pure YAML; no markdown code blocks and no other explanations.
-Use the following information to help guide your response.
 
+Example response for writing files:
+\`\`\`
+response_type: write_files
+files_to_write:
+  - path: src/main.py
+    file_contents: |
+      print("hello")
+message: Add main entry point
+\`\`\`
+
+Example response for answering:
+\`\`\`
+response_type: answer
+message: The error occurs because...
+\`\`\`
+
+Use the following information to help guide your response.
 \`\`\`
 $ uname -a
 $(uname -a)
-
 $agents_prompt
-
 $ git ls-files
 $(git ls-files)
 \`\`\`
@@ -328,9 +341,7 @@ function __GENIUS__process_response() {
 
 function geni() {
     if ! __GENIUS__ensure_git_sane; then
-        #git status
         warning 'git repo dirty'
-        #return
     fi
-    llm_pipe -x -s "$(geni_prompt)" "$@" | __GENIUS__process_response
+    llm_pipe -s "$(geni_prompt)" "$@" | __GENIUS__process_response
 }
