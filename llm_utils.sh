@@ -165,6 +165,9 @@ function error() {
     printf "${__RED}ERROR: %s${__RESET}\n" "$*"
 }
 
+# ttok has a bug that prints a bunch of junk to stderr
+alias ttok="ttok 2>/dev/null"
+
 ################################################################################
 # sanity checks
 ################################################################################
