@@ -90,13 +90,15 @@ files_to_write:
   - path: src/main.py
     file_contents: |
       print("hello")
-message: Add main entry point
+message: |
+  Add main entry point
 \`\`\`
 
 Example response for answering:
 \`\`\`
 response_type: answer
-message: The error occurs because...
+message: |
+  The error occurs because...
 \`\`\`
 
 Use the following information to help guide your response.
@@ -274,12 +276,14 @@ function __GENIUS__process_response() {
 function pipe_helper() {
     # some functions take a long time to generate their output;
     # this helper can be used to monitor the progress of these functions;
-    # it prints a . to stderr periodically as it receives lines from stdin
+    # it inspects the YAML stream to show file write progress
     printf "request sent... " >&2
     
-    local line_count=0
     local first_line=true
     local output=""
+    local in_files_section=false
+    local current_path=""
+    local write_type=""
     
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$first_line" == true ]]; then
@@ -288,11 +292,37 @@ function pipe_helper() {
         fi
         
         output+="$line"$'\n'
-        ((line_count++))
-        if (( line_count % 10 == 0 )); then
-            printf '.' >&2
+        
+        # Detect files_to_write section
+        if [[ "$line" =~ ^files_to_write: ]]; then
+            in_files_section=true
+            continue
+        fi
+        
+        # Detect end of files section (new top-level key)
+        if [[ "$in_files_section" == true && "$line" =~ ^[a-z_]+: && ! "$line" =~ ^[[:space:]] ]]; then
+            in_files_section=false
+        fi
+        
+        if [[ "$in_files_section" == true ]]; then
+            # Capture path
+            if [[ "$line" =~ ^[[:space:]]+path:[[:space:]]*(.+)$ ]]; then
+                current_path="${BASH_REMATCH[1]}"
+            fi
+            
+            # Detect file_contents (full write)
+            if [[ "$line" =~ ^[[:space:]]+file_contents: ]]; then
+                printf "\n  %s (full)" "$current_path" >&2
+                current_path=""
+            fi
+            
+            # Detect patch_contents (patch)
+            if [[ "$line" =~ ^[[:space:]]+patch_contents: ]]; then
+                printf "\n  %s (patch)" "$current_path" >&2
+                current_path=""
+            fi
         fi
     done
-    echo >&2
+    printf "\n" >&2
     echo "$output"
 }
