@@ -12,7 +12,9 @@ source .ai_scripts/geni.sh
 EOF
 ```
 
-## Example Use
+## Examples
+
+### llm
 
 The scripts define a number of aliases around the `llm` command that automatically call the appropriate model and compute cost for a query based on token usage.
 For example
@@ -22,6 +24,8 @@ Hello! How can I help you today?
 
 cost: $0.0008 (input: $0.0005, output: $0.0003) --cid=01kqawtph82nvh7y9cbwpzwk5v
 ```
+
+### geni
 
 The `geni` command is a wrapper around the `llm` command that automatically commits writes files to the disk and creates appropriate commit messages.
 ```
