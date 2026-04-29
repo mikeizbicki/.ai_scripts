@@ -184,7 +184,12 @@ alias ttok="ttok 2>/dev/null"
 ################################################################################
 
 function __check_dependencies() {
-    local tools=(llm files-to-prompt ttok jq bc jsonschema python3 wiggle patch)
+    # our scripts depend on all of the following tools;
+    # we should check if they are installed/not installed when the file is sourced
+    # so that the user can know whether our tools will work;
+    # this function should always be updated to include new tools
+    # if those tools are being used elsewhere in the code
+    local tools=(llm files-to-prompt ttok jq bc jsonschema python3 wiggle patch xclip)
     for tool in "${tools[@]}"; do
         command -v "$tool" &>/dev/null || warning ".ai_scripts missing dependency: $tool"
     done
