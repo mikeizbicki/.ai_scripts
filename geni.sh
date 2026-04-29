@@ -167,13 +167,12 @@ function __GENIUS__process_response() {
     input=$(cat)
     git_dir=$(git rev-parse --git-dir)
     echo "$input" > "$git_dir"/.geni.raw
-    echo "$json_response" > "$git_dir"/.geni.raw.json
 
     json_response=$(echo "$input" | __GENIUS__YAML2JSON)
+    echo "$json_response" > "$git_dir"/.geni.raw.json
     if [ $? -ne 0 ]; then
         error 'failed to parse llm output as YAML'
         error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
-        error "HINT: '$git_dir/.geni.raw.json' contains the converted json"
         return 1
     fi
     schema=$(echo "$__GENIUS__RESPONSE_SCHEMA" | __GENIUS__YAML2JSON)
@@ -181,6 +180,7 @@ function __GENIUS__process_response() {
     # validate schema
     if ! (jsonschema -i <(echo "$json_response") <(echo "$schema")) >/dev/null 2>&1; then
         error 'llm response failed jsonschema check'
+        error "$(jsonschema -i <(echo "$json_response") <(echo "$schema") 2>/dev/null)"
         error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
         error "HINT: '$git_dir/.geni.raw.json' contains the converted json"
         return 1
