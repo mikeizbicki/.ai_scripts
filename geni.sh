@@ -32,16 +32,8 @@ function geni() {
 
 __GENIUS__RESPONSE_SCHEMA='
 type: object
-required: ["response_type", "message"]
+required: ["files_to_write", "message"]
 properties:
-  response_type:
-    type: string
-    enum: ["write_files", "more_info_needed", "answer"]
-    description:
-      If "write_files", then files_to_write must have at least one entry.
-      If "more_info_needed" or "answer", then files_to_write should be empty.
-      Select "answer" if the user asked a question and you are answering the question.
-      Select "more_info_needed" if you need more information to either write files or answer the question.
   files_to_write:
     type: array
     items:
@@ -56,7 +48,7 @@ properties:
           type: string
           pattern: "^[a-zA-Z0-9_.][a-zA-Z0-9_./-]*(/[a-zA-Z0-9_.][a-zA-Z0-9_./-]*)*$"
           description:
-            The path must be relative.
+            The path must be relative and not contain directory traversal (..).
         patch_contents:
           type: string
           description:
@@ -64,13 +56,11 @@ properties:
         file_contents:
           type: string
           description:
-            The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them. This field should be non-null when many changes need to be made to many parts of the file, and so the diff would be very large.
+            The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them.
   message:
     type: string
     description: |
-      If status_code is "success", provide a commit message for the changes in Tim Pope style. The message should have a 1 line imperative subject (<50 chars). Complicated commits can also have an additional paragraph up to 5 sentences. The message should be helpful to a programmer reviewing git logs, be as succinct as possible, and should focus on the *why* of the changes.
-      If status_code is "response", then provide a short response between 1-20 sentences that answers the question. Use markdown formatting and appropriate technical jargon. Focus on a high signal-to-noise ratio.
-      If status_code is "more_info_needed", ask a series of questions that the user should answer to help write the files/answer the question. The response should be between 1-5 questions, each question between 1-3 sentences (and as short as possible).
+      A commit message for the changes in Tim Pope style. The message should have a 1 line imperative subject (<50 chars). Complicated commits can also have an additional paragraph up to 5 sentences. The message should be helpful to a programmer reviewing git logs, be as succinct as possible, and should focus on the *why* of the changes.
 '
 
 function geni_prompt() {
@@ -126,15 +116,21 @@ function __GENIUS__YAML2JSON() {
 import sys, yaml, json, re
 
 raw = sys.stdin.read()
+lines = raw.split("\n")
 
-# Try to extract from markdown code blocks (matched pairs)
-match = re.search(r"```(?:ya?ml)?\s*\n(.*?)\n```", raw, re.DOTALL | re.IGNORECASE)
-if match:
-    raw = match.group(1)
-else:
-    # Handle uneven code block - discard everything after single ```
-    if "```" in raw:
-        raw = raw.split("```")[0]
+# Only strip top-level (column 0) code fences that wrap the entire response
+# Code fences inside YAML string values will be indented, so we ignore those
+first_fence = None
+last_fence = None
+for i, line in enumerate(lines):
+    if re.match(r"^```(ya?ml)?\s*$", line, re.IGNORECASE):
+        if first_fence is None:
+            first_fence = i
+        else:
+            last_fence = i
+
+if first_fence is not None and last_fence is not None:
+    raw = "\n".join(lines[first_fence + 1:last_fence])
 
 raw = raw.strip()
 json.dump(yaml.safe_load(raw), sys.stdout)
@@ -177,13 +173,12 @@ function __GENIUS__process_response() {
     input=$(cat)
     git_dir=$(git rev-parse --git-dir)
     echo "$input" > "$git_dir"/.geni.raw
-    echo "$json_response" > "$git_dir"/.geni.raw.json
 
     json_response=$(echo "$input" | __GENIUS__YAML2JSON)
+    echo "$json_response" > "$git_dir"/.geni.raw.json
     if [ $? -ne 0 ]; then
         error 'failed to parse llm output as YAML'
         error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
-        error "HINT: '$git_dir/.geni.raw.json' contains the converted json"
         return 1
     fi
     schema=$(echo "$__GENIUS__RESPONSE_SCHEMA" | __GENIUS__YAML2JSON)
@@ -191,100 +186,93 @@ function __GENIUS__process_response() {
     # validate schema
     if ! (jsonschema -i <(echo "$json_response") <(echo "$schema")) >/dev/null 2>&1; then
         error 'llm response failed jsonschema check'
+        error "$(jsonschema -i <(echo "$json_response") <(echo "$schema") 2>/dev/null)"
         error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
         error "HINT: '$git_dir/.geni.raw.json' contains the converted json"
         return 1
     fi
 
-    response_type=$(echo "$json_response" | jq -r .response_type)
+    # process each file in the response
+    has_failure=false
+    num_files=$(echo "$json_response" | jq '.files_to_write | length')
+    for ((i=0; i<num_files; i++)); do
+        path=$(echo "$json_response" | jq -r ".files_to_write[$i].path")
 
-    if [ "$response_type" = "write_files" ]; then
-        has_failure=false
-        # loop over each file that we might write
-        num_files=$(echo "$json_response" | jq '.files_to_write | length')
-        for ((i=0; i<num_files; i++)); do
-            path=$(echo "$json_response" | jq -r ".files_to_write[$i].path")
+        mkdir -p "$(dirname "$path")"
 
-            mkdir -p "$(dirname "$path")"
-
-            # compute the new file contents;
-            # if the contents was given in the response, just extract from json;
-            # else (a diff was given in the response), then we compute file_contents from the diff
-            if echo "$json_response" | jq -e ".files_to_write[$i].file_contents != null" > /dev/null; then
-                file_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].file_contents")
-            else
-                patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
-                file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
-                if [ $? -ne 0 ]; then
-                    warning "patch failed for '$path', using wiggle"
-                    file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
-                    if [ $? -ne 0 ]; then
-                        error 'wiggle was unable to apply patch'
-                        has_failure=true
-                    else
-                        warning 'wiggle applied patch successfully'
-                    fi
-                fi
-            fi
-
-            # apply the changes
-            if [ -e "$path" ]; then
-                action='edited'
-                diff_output=$(diff -u "$path" <(echo "$file_contents") | __GENIUS__cleandiff)
-
-                # backup $path if dirty
-                dirty=false
-                if ! git ls-files --error-unmatch "$path" 2>/dev/null >/dev/null; then
-                    warning "'$path' not in repo."
-                    dirty=true
-                fi
-                if ! (git diff --quiet "$path" && git diff --cached --quiet "$path") ; then
-                    warning "'$path' has uncommitted changes"
-                    dirty=true
-                fi
-                if [ "$dirty" = "true" ]; then
-                    temp=$(mktemp)
-                    cat "$path" > "$temp"
-                    warning "existing file will be overwritten"
-                    warning "backup created at '$temp'"
-                fi
-
-                # edit file
-                echo "$file_contents" > "$path"
-                git add "$path"
-            else
-                action='created'
-                diff_output=$(diff -u /dev/null <(echo "$file_contents") | __GENIUS__cleandiff)
-
-                # create file
-                echo "$file_contents" > "$path"
-                git add "$path"
-            fi
-        done
-
-        # NOTE:
-        # Latin purists may object to using the vocative "geni" in the commit message
-        # (because the message is not directly calling on the "genius" daemon).
-        # But we actually using the genitive of possession
-        # (to say that this commit belongs to "genius").
-        # It just so happens that geni is both the vocative and genitive form of genius.
-        msg=$(echo "$json_response" | jq -r .message)
-        echo -e "${__BLUE}$msg${__RESET}"
-        if [ "$has_failure" = "false" ]; then
-            git commit --quiet -m "[geni] $msg" 2>/dev/null 1>/dev/null
-            if [ $? -ne 0 ]; then
-                error 'git commit failed'
-            else
-                __GENIUS__git_diff
-            fi
+        # compute the new file contents;
+        # if the contents was given in the response, just extract from json;
+        # else (a diff was given in the response), then we compute file_contents from the diff
+        if echo "$json_response" | jq -e ".files_to_write[$i].file_contents != null" > /dev/null; then
+            file_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].file_contents")
         else
-            error 'not running git commit'
+            patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
+            file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
+            if [ $? -ne 0 ]; then
+                warning "patch failed for '$path', using wiggle"
+                file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
+                if [ $? -ne 0 ]; then
+                    error 'wiggle was unable to apply patch'
+                    has_failure=true
+                else
+                    warning 'wiggle applied patch successfully'
+                fi
+            fi
         fi
 
-    # any other response_type, just output the message
+        # apply the changes
+        if [ -e "$path" ]; then
+            action='edited'
+            diff_output=$(diff -u "$path" <(echo "$file_contents") | __GENIUS__cleandiff)
+
+            # backup $path if dirty
+            dirty=false
+            if ! git ls-files --error-unmatch "$path" 2>/dev/null >/dev/null; then
+                warning "'$path' not in repo."
+                dirty=true
+            fi
+            if ! (git diff --quiet "$path" && git diff --cached --quiet "$path") ; then
+                warning "'$path' has uncommitted changes"
+                dirty=true
+            fi
+            if [ "$dirty" = "true" ]; then
+                temp=$(mktemp)
+                cat "$path" > "$temp"
+                warning "existing file will be overwritten"
+                warning "backup created at '$temp'"
+            fi
+
+            # edit file
+            echo "$file_contents" > "$path"
+            git add "$path"
+        else
+            action='created'
+            diff_output=$(diff -u /dev/null <(echo "$file_contents") | __GENIUS__cleandiff)
+
+            # create file
+            echo "$file_contents" > "$path"
+            git add "$path"
+        fi
+    done
+
+    # commit the changes
+    # NOTE:
+    # Latin purists may object to using the vocative "geni" in the commit message
+    # (because the message is not directly calling on the "genius" daemon).
+    # But we actually using the genitive of possession
+    # (to say that this commit belongs to "genius").
+    # It just so happens that geni is both the vocative and genitive form of genius.
+    msg=$(echo "$json_response" | jq -r .message)
+    echo -e "${__BLUE}$msg${__RESET}"
+    if [ "$has_failure" = "false" ]; then
+        git commit --quiet -m "[geni] $msg" 2>/dev/null 1>/dev/null
+        if [ $? -ne 0 ]; then
+            error 'git commit failed'
+        else
+            __GENIUS__git_diff
+        fi
     else
-        msg=$(echo "$json_response" | jq -r .message)
-        echo -e "${__BLUE}$msg${__RESET}"
+        error 'not running git commit'
     fi
 }
 
