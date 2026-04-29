@@ -192,95 +192,87 @@ function __GENIUS__process_response() {
         return 1
     fi
 
-    response_type=$(echo "$json_response" | jq -r .response_type)
+    # process each file in the response
+    has_failure=false
+    num_files=$(echo "$json_response" | jq '.files_to_write | length')
+    for ((i=0; i<num_files; i++)); do
+        path=$(echo "$json_response" | jq -r ".files_to_write[$i].path")
 
-    if [ "$response_type" = "write_files" ]; then
-        has_failure=false
-        # loop over each file that we might write
-        num_files=$(echo "$json_response" | jq '.files_to_write | length')
-        for ((i=0; i<num_files; i++)); do
-            path=$(echo "$json_response" | jq -r ".files_to_write[$i].path")
+        mkdir -p "$(dirname "$path")"
 
-            mkdir -p "$(dirname "$path")"
-
-            # compute the new file contents;
-            # if the contents was given in the response, just extract from json;
-            # else (a diff was given in the response), then we compute file_contents from the diff
-            if echo "$json_response" | jq -e ".files_to_write[$i].file_contents != null" > /dev/null; then
-                file_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].file_contents")
-            else
-                patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
-                file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
-                if [ $? -ne 0 ]; then
-                    warning "patch failed for '$path', using wiggle"
-                    file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
-                    if [ $? -ne 0 ]; then
-                        error 'wiggle was unable to apply patch'
-                        has_failure=true
-                    else
-                        warning 'wiggle applied patch successfully'
-                    fi
-                fi
-            fi
-
-            # apply the changes
-            if [ -e "$path" ]; then
-                action='edited'
-                diff_output=$(diff -u "$path" <(echo "$file_contents") | __GENIUS__cleandiff)
-
-                # backup $path if dirty
-                dirty=false
-                if ! git ls-files --error-unmatch "$path" 2>/dev/null >/dev/null; then
-                    warning "'$path' not in repo."
-                    dirty=true
-                fi
-                if ! (git diff --quiet "$path" && git diff --cached --quiet "$path") ; then
-                    warning "'$path' has uncommitted changes"
-                    dirty=true
-                fi
-                if [ "$dirty" = "true" ]; then
-                    temp=$(mktemp)
-                    cat "$path" > "$temp"
-                    warning "existing file will be overwritten"
-                    warning "backup created at '$temp'"
-                fi
-
-                # edit file
-                echo "$file_contents" > "$path"
-                git add "$path"
-            else
-                action='created'
-                diff_output=$(diff -u /dev/null <(echo "$file_contents") | __GENIUS__cleandiff)
-
-                # create file
-                echo "$file_contents" > "$path"
-                git add "$path"
-            fi
-        done
-
-        # NOTE:
-        # Latin purists may object to using the vocative "geni" in the commit message
-        # (because the message is not directly calling on the "genius" daemon).
-        # But we actually using the genitive of possession
-        # (to say that this commit belongs to "genius").
-        # It just so happens that geni is both the vocative and genitive form of genius.
-        msg=$(echo "$json_response" | jq -r .message)
-        echo -e "${__BLUE}$msg${__RESET}"
-        if [ "$has_failure" = "false" ]; then
-            git commit --quiet -m "[geni] $msg" 2>/dev/null 1>/dev/null
-            if [ $? -ne 0 ]; then
-                error 'git commit failed'
-            else
-                __GENIUS__git_diff
-            fi
+        # compute the new file contents;
+        # if the contents was given in the response, just extract from json;
+        # else (a diff was given in the response), then we compute file_contents from the diff
+        if echo "$json_response" | jq -e ".files_to_write[$i].file_contents != null" > /dev/null; then
+            file_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].file_contents")
         else
-            error 'not running git commit'
+            patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
+            file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
+            if [ $? -ne 0 ]; then
+                warning "patch failed for '$path', using wiggle"
+                file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
+                if [ $? -ne 0 ]; then
+                    error 'wiggle was unable to apply patch'
+                    has_failure=true
+                else
+                    warning 'wiggle applied patch successfully'
+                fi
+            fi
         fi
 
-    # any other response_type, just output the message
+        # apply the changes
+        if [ -e "$path" ]; then
+            action='edited'
+            diff_output=$(diff -u "$path" <(echo "$file_contents") | __GENIUS__cleandiff)
+
+            # backup $path if dirty
+            dirty=false
+            if ! git ls-files --error-unmatch "$path" 2>/dev/null >/dev/null; then
+                warning "'$path' not in repo."
+                dirty=true
+            fi
+            if ! (git diff --quiet "$path" && git diff --cached --quiet "$path") ; then
+                warning "'$path' has uncommitted changes"
+                dirty=true
+            fi
+            if [ "$dirty" = "true" ]; then
+                temp=$(mktemp)
+                cat "$path" > "$temp"
+                warning "existing file will be overwritten"
+                warning "backup created at '$temp'"
+            fi
+
+            # edit file
+            echo "$file_contents" > "$path"
+            git add "$path"
+        else
+            action='created'
+            diff_output=$(diff -u /dev/null <(echo "$file_contents") | __GENIUS__cleandiff)
+
+            # create file
+            echo "$file_contents" > "$path"
+            git add "$path"
+        fi
+    done
+
+    # commit the changes
+    # NOTE:
+    # Latin purists may object to using the vocative "geni" in the commit message
+    # (because the message is not directly calling on the "genius" daemon).
+    # But we actually using the genitive of possession
+    # (to say that this commit belongs to "genius").
+    # It just so happens that geni is both the vocative and genitive form of genius.
+    msg=$(echo "$json_response" | jq -r .message)
+    echo -e "${__BLUE}$msg${__RESET}"
+    if [ "$has_failure" = "false" ]; then
+        git commit --quiet -m "[geni] $msg" 2>/dev/null 1>/dev/null
+        if [ $? -ne 0 ]; then
+            error 'git commit failed'
+        else
+            __GENIUS__git_diff
+        fi
     else
-        msg=$(echo "$json_response" | jq -r .message)
-        echo -e "${__BLUE}$msg${__RESET}"
+        error 'not running git commit'
     fi
 }
 
