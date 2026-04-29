@@ -32,16 +32,8 @@ function geni() {
 
 __GENIUS__RESPONSE_SCHEMA='
 type: object
-required: ["response_type", "message"]
+required: ["files_to_write", "message"]
 properties:
-  response_type:
-    type: string
-    enum: ["write_files", "more_info_needed", "answer"]
-    description:
-      If "write_files", then files_to_write must have at least one entry.
-      If "more_info_needed" or "answer", then files_to_write should be empty.
-      Select "answer" if the user asked a question and you are answering the question.
-      Select "more_info_needed" if you need more information to either write files or answer the question.
   files_to_write:
     type: array
     items:
@@ -56,7 +48,7 @@ properties:
           type: string
           pattern: "^[a-zA-Z0-9_.][a-zA-Z0-9_./-]*(/[a-zA-Z0-9_.][a-zA-Z0-9_./-]*)*$"
           description:
-            The path must be relative.
+            The path must be relative and not contain directory traversal (..).
         patch_contents:
           type: string
           description:
@@ -64,13 +56,11 @@ properties:
         file_contents:
           type: string
           description:
-            The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them. This field should be non-null when many changes need to be made to many parts of the file, and so the diff would be very large.
+            The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them.
   message:
     type: string
     description: |
-      If status_code is "success", provide a commit message for the changes in Tim Pope style. The message should have a 1 line imperative subject (<50 chars). Complicated commits can also have an additional paragraph up to 5 sentences. The message should be helpful to a programmer reviewing git logs, be as succinct as possible, and should focus on the *why* of the changes.
-      If status_code is "response", then provide a short response between 1-20 sentences that answers the question. Use markdown formatting and appropriate technical jargon. Focus on a high signal-to-noise ratio.
-      If status_code is "more_info_needed", ask a series of questions that the user should answer to help write the files/answer the question. The response should be between 1-5 questions, each question between 1-3 sentences (and as short as possible).
+      A commit message for the changes in Tim Pope style. The message should have a 1 line imperative subject (<50 chars). Complicated commits can also have an additional paragraph up to 5 sentences. The message should be helpful to a programmer reviewing git logs, be as succinct as possible, and should focus on the *why* of the changes.
 '
 
 function geni_prompt() {
