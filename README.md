@@ -26,7 +26,9 @@ cost: $0.0008 (input: $0.0005, output: $0.0003) --cid=01kqawtph82nvh7y9cbwpzwk5v
 ```
 
 ### geni
+
 <img align="right" width="2in" src="img/geni.png">
+
 The `geni` command is a wrapper around the `llm` command that automatically commits writes files to the disk and creates appropriate commit messages.
 ```
 $ mkdir tmp
