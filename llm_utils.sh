@@ -31,7 +31,7 @@ function llm_interactive() {
     # highlight llm output in blue;
     # this makes it easy to skim a terminal session to find llm output
     printf "${__BLUE}"
-    llm_wrapper "$@" | tee_xclip
+    llm_wrapper "$@" | tee >(xclip -selection clipboard)
     printf "${__RESET}"
 }
 
@@ -156,17 +156,6 @@ __BLUE='\033[38;5;39m'
 __ORANGE='\033[38;5;208m'
 __RED='\033[38;5;196m'
 __RESET='\033[0m'
-
-function tee_xclip() {
-    # Stream stdin to stdout while also copying to clipboard
-    local content=""
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        printf '%s\n' "$line"
-        content+="$line"$'\n'
-    done
-    # Remove trailing newline and copy to clipboard
-    printf '%s' "${content%$'\n'}" | xclip -selection clipboard
-}
 
 function warning() {
     printf "${__ORANGE}WARNING: %s${__RESET}\n" "$*"
