@@ -116,15 +116,21 @@ function __GENIUS__YAML2JSON() {
 import sys, yaml, json, re
 
 raw = sys.stdin.read()
+lines = raw.split("\n")
 
-# Try to extract from markdown code blocks (matched pairs)
-match = re.search(r"```(?:ya?ml)?\s*\n(.*?)\n```", raw, re.DOTALL | re.IGNORECASE)
-if match:
-    raw = match.group(1)
-else:
-    # Handle uneven code block - discard everything after single ```
-    if "```" in raw:
-        raw = raw.split("```")[0]
+# Only strip top-level (column 0) code fences that wrap the entire response
+# Code fences inside YAML string values will be indented, so we ignore those
+first_fence = None
+last_fence = None
+for i, line in enumerate(lines):
+    if re.match(r"^```(ya?ml)?\s*$", line, re.IGNORECASE):
+        if first_fence is None:
+            first_fence = i
+        else:
+            last_fence = i
+
+if first_fence is not None and last_fence is not None:
+    raw = "\n".join(lines[first_fence + 1:last_fence])
 
 raw = raw.strip()
 json.dump(yaml.safe_load(raw), sys.stdout)
