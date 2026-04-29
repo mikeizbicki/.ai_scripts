@@ -78,22 +78,14 @@ You are a coding agent. You will write files to achieve the tasks that the user 
 
 The response must be pure YAML; no markdown code blocks and no other explanations.
 
-Example response for writing files:
+Example response:
 \`\`\`
-response_type: write_files
 files_to_write:
   - path: src/main.py
     file_contents: |
       print("hello")
 message: |
   Add main entry point
-\`\`\`
-
-Example response for answering:
-\`\`\`
-response_type: answer
-message: |
-  The error occurs because...
 \`\`\`
 
 Use the following information to help guide your response.
