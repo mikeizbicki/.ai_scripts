@@ -7,20 +7,38 @@ import yaml
 
 
 def fuzzy_yaml_to_json(raw: str) -> str:
-    """
+    r"""
     Convert YAML input into compact JSON while tolerating top-level code fences.
 
     The conversion is "fuzzy" in that it strips only a wrapping pair of
     top-level markdown code fences. Indented code fences inside YAML block
     scalars are preserved as data.
 
-    >>> fuzzy_yaml_to_json("message: hello\\n")
+    >>> fuzzy_yaml_to_json(
+    ...     "message: hello\n"
+    ... )
     '{"message": "hello"}'
-    >>> fuzzy_yaml_to_json("```yaml\\nmessage: hello\\n```\\n")
+
+    >>> fuzzy_yaml_to_json(
+    ...     "```yaml\n"
+    ...     "message: hello\n"
+    ...     "```\n"
+    ... )
     '{"message": "hello"}'
-    >>> fuzzy_yaml_to_json("```\\nmessage: hello\\n```\\n")
+
+    >>> fuzzy_yaml_to_json(
+    ...     "```\n"
+    ...     "message: hello\n"
+    ...     "```\n"
+    ... )
     '{"message": "hello"}'
-    >>> fuzzy_yaml_to_json("body: |\\n  ```yaml\\n  not a fence\\n  ```\\n")
+
+    >>> fuzzy_yaml_to_json(
+    ...     "body: |\n"
+    ...     "  ```yaml\n"
+    ...     "  not a fence\n"
+    ...     "  ```\n"
+    ... )
     '{"body": "```yaml\\nnot a fence\\n```\\n"}'
     """
     lines = raw.split("\n")
