@@ -23,7 +23,7 @@ function geni() {
         warning 'git repo dirty'
     fi
 
-    llm_wrapper -s "$(geni_prompt)" "$@" | pipe_helper | __GENIUS__process_response
+    llm_wrapper -s "$(geni_prompt)" "$@" | geni_tee | __GENIUS__process_response
 }
 
 ################################################################################
@@ -218,7 +218,7 @@ function __GENIUS__process_response() {
     fi
 }
 
-function pipe_helper() {
+function geni_tee() {
     # some functions take a long time to generate their output;
     # this helper can be used to monitor the progress of these functions;
     # it inspects the YAML stream to show file write progress
@@ -249,19 +249,29 @@ function pipe_helper() {
             in_files_section=false
         fi
         
+        # NOTE:
+        # the code below "dynamically parses" the YAML output;
+        # it is not fully correct (in that there are valid YAML outputs that will not get matched),
+        # but it is close-enough that it seems to always work for LLM output;
+        # we do not use a standard YAML parser because these need the entire input
+        # document to be present, and we want to parse the input as it comes in;
+        # the mild incorrectness is acceptable here because the purpose of this
+        # code is only to display the progress of the download from the LLM API,
+        # any incorrect parses affect these progress messages
+        # but not the final result (which uses a correct YAML parser)
         if [[ "$in_files_section" == true ]]; then
             # Capture path
-            if [[ "$line" =~ ^[[:space:]]+-?[[:space:]]*path:[[:space:]]*(.+)$ ]]; then
+            if [[ "$line" =~ ^[[:space:]]{0,4}-[[:space:]]*path:[[:space:]]*(.+)$ ]]; then
                 current_path="${BASH_REMATCH[1]}"
             fi
             
             # Detect file_contents (full write)
-            if [[ "$line" =~ ^[[:space:]]+file_contents: ]]; then
+            if [[ "$line" =~ ^[[:space:]]{0,4}file_contents: ]]; then
                 printf " $current_path(full)..." >&2
             fi
             
             # Detect patch_contents (patch)
-            if [[ "$line" =~ ^[[:space:]]+patch_contents: ]]; then
+            if [[ "$line" =~ ^[[:space:]]{0,4}patch_contents: ]]; then
                 printf " $current_path(patch)..." >&2
             fi
         fi
