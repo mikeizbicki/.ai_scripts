@@ -63,22 +63,19 @@ function geni_prompt() {
     # this is a function and not a variable so that it gets rebuilt on every invokation;
     # this for example ensures that the result of `git ls-files` is current
     # this is global so that it is easy to inspect the value of the prompt
-    __GENIUS__RESPONSE_SCHEMA="$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml")"
+    local schema="$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml")"
     if [ -s "AGENTS.md" ]; then
         agents_prompt="$ cat AGENTS.md
 $(cat "AGENTS.md")"
     fi
     cat <<EOF
-You are a coding agent. You will write files to achieve the tasks that the user specifies in their queries. Your response should always be in pure YAML and have no markdown code blocks or other explanation.
+You are a coding agent. You will write files to achieve the tasks that the user specifies in their queries. Your response should always be in pure YAML and conform to the following schema:
 
-<response_structure>
-files_to_write: list of files, each with:
-  - path: relative path (no ..)
-  - file_contents: full file text (for new files or large changes)
-  - patch_contents: unified diff (for small localized edits; it is okay/encouraged to patch the same file multiple times instead of rewriting the entire file)
-  You cannot specify both patch_contents and file_contents for the same file
-message: Tim Pope commit style - imperative subject <50 chars, optional body paragraph explaining why
-</response_structure>
+<schema>
+$schema
+</schema>
+
+Do not include any markdown codeblocks or other explanations.
 
 <example_write>
 files_to_write:
@@ -88,6 +85,8 @@ files_to_write:
 message: |
   Add main entry point
 </example_write>
+
+It is okay/encouraged to patch the same file multiple times instead of rewriting large files. Each patch must get its own entry in the files_to_write list.
 
 <example_patch>
 files_to_write:
