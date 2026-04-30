@@ -59,8 +59,8 @@ properties:
             The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them.
   message:
     type: string
-    description: |
-      A commit message for the changes in Tim Pope style. The message should have a 1 line imperative subject (<50 chars). Complicated commits can also have an additional paragraph up to 5 sentences. The message should be helpful to a programmer reviewing git logs, be as succinct as possible, and should focus on the *why* of the changes.
+    description:
+      A commit message for the changes in Tim Pope style. The message should have a 1 line imperative subject (<50 chars). Complicated commits can also have an additional paragraph up to 5 sentences. (The title and paragraph should be separated by a blank line.) The message should be helpful to a programmer reviewing git logs, be as succinct as possible, and should focus on the *why* of the changes.
 '
 
 function geni_prompt() {
