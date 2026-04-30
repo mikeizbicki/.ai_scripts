@@ -147,7 +147,6 @@ function geni_write_files() {
     if [ $? -ne 0 ]; then
         error 'llm failed to generate valid YAML'
         geni_dir="$(git rev-parse --git-dir)"/.geni
-        hint 'input:' "$input"
         hint 'usually the YAML is almost valid, but has a minor syntax error'
         hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
         hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
