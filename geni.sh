@@ -13,6 +13,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/llm_utils.sh"
 
 # geni is the main public interface
 function geni() {
+    ####################
+    # STEP1: ensure git repo sane
+    ####################
     # geni will be automatically making commits,
     # so we want git in a sane state before running
     if git status --porcelain | grep -q '^[MADRC]'; then
@@ -23,7 +26,31 @@ function geni() {
         warning 'git repo dirty'
     fi
 
-    llm_wrapper -s "$(geni_prompt)" "$@" | geni_tee | __GENIUS__process_response
+    ####################
+    # STEP2: generate/apply the patch
+    ####################
+    (
+        # we store all intermediate results in the .git/.geni folder;
+        # this allows inspecting the results if needed to debug errors
+        geni_dir="$(git rev-parse --git-dir)"/.geni
+        mkdir -p "$geni_dir"
+
+        # llm_wrapper can sometimes take a long time (minutes);
+        # geni_tee creates a "progress" bar for llm_wrapper;
+        # by default, if statements only consider the last command in the pipeline;
+        # the set -o pipefail option enforces that all commands must succeed to enter the if block;
+        # this is a "global" property, so we wrap this code in a subshell
+        # to avoid changing the default behavior for the caller of this function
+        set -o pipefail
+        out_file="$geni_dir"/llm_stdout
+        err_file="$geni_dir"/llm_stderr
+        if llm_wrapper -s "$(geni_prompt)" "$@" 2>"$err_file" | geni_tee > "$out_file"; then
+            cat "$out_file" | geni_write_files
+        else
+            error 'llm failed'
+            echo "${__RED}$(cat "$err_file")${__RESET}"
+        fi
+    )
 }
 
 ################################################################################
@@ -107,26 +134,26 @@ function __GENIUS__cleandiff() {
 '
 }
 
-function __GENIUS__process_response() {
+geni_response_schema=$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml" | __GENIUS__YAML2JSON)
+function geni_write_files() {
     input=$(cat)
-    git_dir=$(git rev-parse --git-dir)
-    echo "$input" > "$git_dir"/.geni.raw
 
     json_response=$(echo "$input" | __GENIUS__YAML2JSON)
-    echo "$json_response" > "$git_dir"/.geni.raw.json
     if [ $? -ne 0 ]; then
-        error 'failed to parse llm output as YAML'
-        error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
+        error 'llm failed to generate valid YAML'
+        geni_dir="$(git rev-parse --git-dir)"/.geni
+        hint 'usually the YAML is almost valid, but has a minor syntax error'
+        hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
+        hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
         return 1
     fi
-    schema=$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml" | __GENIUS__YAML2JSON)
 
     # validate schema
-    if ! (jsonschema -i <(echo "$json_response") <(echo "$schema")) >/dev/null 2>&1; then
+    if ! (jsonschema -i <(echo "$json_response") <(echo "$geni_response_schema")) >/dev/null 2>&1; then
         error 'llm response failed jsonschema check'
-        error "$(jsonschema -i <(echo "$json_response") <(echo "$schema") 2>/dev/null)"
-        error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
-        error "HINT: '$git_dir/.geni.raw.json' contains the converted json"
+        error "$(jsonschema -i <(echo "$json_response") <(echo "$geni_response_schema") 2>/dev/null)"
+        hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
+        hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
         return 1
     fi
 

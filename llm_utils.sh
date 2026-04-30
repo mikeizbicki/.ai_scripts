@@ -167,6 +167,10 @@ function warning() {
     printf "${__ORANGE}WARNING: %s${__RESET}\n" "$*" >&2
 }
 
+function hint() {
+    printf "${__ORANGE}HINT: %s${__RESET}\n" "$*" >&2
+}
+
 function error() {
     printf "${__RED}ERROR: %s${__RESET}\n" "$*" >&2
 }
