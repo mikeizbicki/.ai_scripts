@@ -69,25 +69,60 @@ function geni_prompt() {
 $(cat "AGENTS.md")"
     fi
     cat <<EOF
-You are a coding agent. You will write files to achieve the tasks that the user specifies in their queries. Your response should always be in pure YAML and conform to the following schema:
-\`\`\`$__GENIUS__RESPONSE_SCHEMA\`\`\`
+You are a coding agent. You will write files to achieve the tasks that the user specifies in their queries. Your response should always be in pure YAML and have no markdown code blocks or other explanation.
 
-The response must be pure YAML; no markdown code blocks and no other explanations.
+<response_structure>
+files_to_write: list of files, each with:
+  - path: relative path (no ..)
+  - file_contents: full file text (for new files or large changes)
+  - patch_contents: unified diff (for small localized edits; it is okay/encouraged to patch the same file multiple times instead of rewriting the entire file)
+  You cannot specify both patch_contents and file_contents for the same file
+message: Tim Pope commit style - imperative subject <50 chars, optional body paragraph explaining why
+</response_structure>
 
-Example response:
-\`\`\`
+<example_write>
 files_to_write:
   - path: src/main.py
     file_contents: |
       print("hello")
 message: |
   Add main entry point
-\`\`\`
+</example_write>
+
+<example_patch>
+files_to_write:
+  - path: src/utils.py
+    patch_contents: |
+      --- a/src/utils.py
+      +++ b/src/utils.py
+      @@ -12,8 +12,9 @@ import os
+       def calculate_total(items):
+           """Calculate the total price of items."""
+           total = 0
+      -    for item in items:
+      -        total += item.price
+      +    for item in items:
+      +        if item.is_active:
+      +            total += item.price * item.quantity
+           return total
+  - path: src/utils.py
+    patch_contents: |
+      --- a/src/utils.py
+      +++ b/src/utils.py
+      @@ -45,7 +45,7 @@ def format_currency(amount):
+       def validate_item(item):
+           """Check if item is valid for purchase."""
+      -    return item.price > 0
+      +    return item.price > 0 and item.quantity > 0
+message: |
+  Fix total calculation and item validation
+
+  Total now respects quantity and active status. Validation
+  also checks for positive quantity.
+</example_patch>
 
 Use the following information to help guide your response.
 \`\`\`
-$ uname -a
-$(uname -a)
 $agents_prompt
 $ git ls-files
 $(git ls-files)
