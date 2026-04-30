@@ -6,41 +6,52 @@ import sys
 import yaml
 
 
-def fuzzy_yaml_to_json(raw: str) -> str:
-    r"""
-    Convert YAML input into compact JSON while tolerating top-level code fences.
+def fuzzy_yaml_fixer(raw: str) -> str:
+    r'''
+    Fix YAML input by stripping top-level code fences if present.
 
     The conversion is "fuzzy" in that it strips only a wrapping pair of
     top-level markdown code fences. Indented code fences inside YAML block
     scalars are preserved as data.
 
-    >>> fuzzy_yaml_to_json(
-    ...     "message: hello\n"
-    ... )
-    '{"message": "hello"}'
+    >>> print(fuzzy_yaml_fixer("""
+    ... message: hello
+    ... """))
+    message: hello
 
-    >>> fuzzy_yaml_to_json(
-    ...     "```yaml\n"
-    ...     "message: hello\n"
-    ...     "```\n"
-    ... )
-    '{"message": "hello"}'
+    >>> print(fuzzy_yaml_fixer("""
+    ... ```yaml
+    ... message: hello
+    ... ```
+    ... """))
+    message: hello
 
-    >>> fuzzy_yaml_to_json(
-    ...     "```\n"
-    ...     "message: hello\n"
-    ...     "```\n"
-    ... )
-    '{"message": "hello"}'
+    >>> print(fuzzy_yaml_fixer("""
+    ... ```
+    ... message: hello
+    ... ```
+    ... """))
+    message: hello
 
-    >>> fuzzy_yaml_to_json(
-    ...     "body: |\n"
-    ...     "  ```yaml\n"
-    ...     "  not a fence\n"
-    ...     "  ```\n"
-    ... )
-    '{"body": "```yaml\\nnot a fence\\n```\\n"}'
-    """
+    >>> print(fuzzy_yaml_fixer("""
+    ... this text should get removed
+    ... ```
+    ... message: hello
+    ... ```
+    ... """))
+    message: hello
+
+    >>> print(fuzzy_yaml_fixer("""
+    ... body: |
+    ...   ```yaml
+    ...   not a fence
+    ...   ```
+    ... """))
+    body: |
+      ```yaml
+      not a fence
+      ```
+    '''
     lines = raw.split("\n")
 
     first_fence = None
@@ -55,12 +66,12 @@ def fuzzy_yaml_to_json(raw: str) -> str:
     if first_fence is not None and last_fence is not None:
         raw = "\n".join(lines[first_fence + 1:last_fence])
 
-    raw = raw.strip()
-    return json.dumps(yaml.safe_load(raw))
+    return raw.strip()
 
 
 def main() -> int:
-    sys.stdout.write(fuzzy_yaml_to_json(sys.stdin.read()))
+    fixed_yaml = fuzzy_yaml_fixer(sys.stdin.read())
+    sys.stdout.write(json.dumps(yaml.safe_load(fixed_yaml)))
     return 0
 
 
