@@ -133,8 +133,12 @@ function __GENIUS__cleandiff() {
 /^ / { ++oline; printf "  %3d  │ %s\n", ++nline, substr($0,2) }
 '
 }
+function __GENIUS__FUZZY_YAML_FIX() {
+    python3 "$(dirname "${BASH_SOURCE[0]}")/fuzzy_yaml_fix.py"
+}
 
 geni_response_schema=$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml" | __GENIUS__YAML2JSON)
+
 function geni_write_files() {
     input=$(cat)
 
@@ -142,6 +146,7 @@ function geni_write_files() {
     if [ $? -ne 0 ]; then
         error 'llm failed to generate valid YAML'
         geni_dir="$(git rev-parse --git-dir)"/.geni
+        hint 'input:' "$input"
         hint 'usually the YAML is almost valid, but has a minor syntax error'
         hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
         hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
@@ -150,6 +155,7 @@ function geni_write_files() {
 
     # validate schema
     if ! (jsonschema -i <(echo "$json_response") <(echo "$geni_response_schema")) >/dev/null 2>&1; then
+        geni_dir="$(git rev-parse --git-dir)"/.geni
         error 'llm response failed jsonschema check'
         error "$(jsonschema -i <(echo "$json_response") <(echo "$geni_response_schema") 2>/dev/null)"
         hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
@@ -174,7 +180,7 @@ function geni_write_files() {
             patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
             file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
             if [ $? -ne 0 ]; then
-                file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
+                file_contents=$(wiggle --merge "$path" | __GENIUS__FUZZY_YAML_FIX <(echo "$patch_contents") 2>/dev/null)
                 if [ $? -ne 0 ]; then
                     error "wiggle failed to apply patch for '$path'"
                     has_failure=true
