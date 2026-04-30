@@ -30,6 +30,7 @@ function geni() {
     # STEP2: generate/apply the patch
     ####################
     (
+        set -e
         # we store all intermediate results in the .git/.geni folder;
         # this allows inspecting the results if needed to debug errors
         geni_dir="$(git rev-parse --git-dir)"/.geni
@@ -46,7 +47,7 @@ function geni() {
         err_file="$geni_dir"/llm_stderr
         if llm_wrapper -s "$(geni_prompt)" "$@" 2>"$err_file" | geni_tee > "$out_file"; then
             printf "${__ORANGE}$(cat "$err_file")${__RESET}\n"
-            cat "$out_file" | geni_write_files
+            cat "$out_file" | python3 "$(dirname "${BASH_SOURCE[0]}")/fuzzy_yaml_fix.py" | geni_write_files
         else
             error 'llm failed'
             printf "${__RED}$(sed -e 's/Error:/ERROR:/' "$err_file")${__RESET}\n" >&2
@@ -133,10 +134,6 @@ EOF
 # process the output of the LLM
 ################################################################################
 
-function __GENIUS__YAML2JSON() {
-    python3 "$(dirname "${BASH_SOURCE[0]}")/geni-utils.py" 2>/dev/null
-}
-
 function __GENIUS__git_diff() {
     fulldiff=$(git show HEAD --format="" --stat --patch | awk '
 /^ [^ ].*\|.*[+-]/ { stats[$1] = $0; next }
@@ -168,19 +165,16 @@ function __GENIUS__cleandiff() {
 /^ / { ++oline; printf "  %3d  │ %s\n", ++nline, substr($0,2) }
 '
 }
-function __GENIUS__FUZZY_YAML_FIX() {
-    python3 "$(dirname "${BASH_SOURCE[0]}")/fuzzy_yaml_fix.py"
-}
 
-geni_response_schema=$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml" | __GENIUS__YAML2JSON)
+geni_response_schema="$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml"
 
 function geni_write_files() {
     input=$(cat)
+    geni_dir="$(git rev-parse --git-dir)"/.geni
 
-    json_response=$(echo "$input" | __GENIUS__YAML2JSON)
-    if [ $? -ne 0 ]; then
+    # validate YAML syntax by attempting to parse it
+    if ! echo "$input" | yq '.' > /dev/null 2>&1; then
         error 'llm failed to generate valid YAML'
-        geni_dir="$(git rev-parse --git-dir)"/.geni
         hint 'usually the YAML is almost valid, but has a minor syntax error'
         hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
         hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
@@ -188,10 +182,8 @@ function geni_write_files() {
     fi
 
     # validate schema
-    if ! (jsonschema -i <(echo "$json_response") <(echo "$geni_response_schema")) >/dev/null 2>&1; then
-        geni_dir="$(git rev-parse --git-dir)"/.geni
+    if ! echo "$input" | yq '.' | jsonschema <(yq '.' $geni_response_schema) 2>"$geni_dir"/check-jsonschema_stderr; then
         error 'llm response failed jsonschema check'
-        error "$(jsonschema -i <(echo "$json_response") <(echo "$geni_response_schema") 2>/dev/null)"
         hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
         hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
         return 1
@@ -199,19 +191,19 @@ function geni_write_files() {
 
     # process each file in the response
     has_failure=false
-    num_files=$(echo "$json_response" | jq '.files_to_write | length')
+    num_files=$(echo "$input" | yq '.files_to_write | length')
     for ((i=0; i<num_files; i++)); do
-        path=$(echo "$json_response" | jq -r ".files_to_write[$i].path")
+        path=$(echo "$input" | yq -r ".files_to_write[$i].path")
 
         mkdir -p "$(dirname "$path")"
 
         # compute the new file contents;
         # if the contents was given in the response, just extract from json;
         # else (a diff was given in the response), then we compute file_contents from the diff
-        if echo "$json_response" | jq -e ".files_to_write[$i].file_contents != null" > /dev/null; then
-            file_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].file_contents")
+        if [ "$(echo "$input" | yq -r ".files_to_write[$i].file_contents")" != "null" ]; then
+            file_contents=$(echo "$input" | yq -r ".files_to_write[$i].file_contents")
         else
-            patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
+            patch_contents=$(echo "$input" | yq -r ".files_to_write[$i].patch_contents")
             file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
             if [ $? -ne 0 ]; then
                 file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
@@ -266,7 +258,7 @@ function geni_write_files() {
     # But we actually using the genitive of possession
     # (to say that this commit belongs to "genius").
     # It just so happens that geni is both the vocative and genitive form of genius.
-    commit_message="[geni] $(echo "$json_response" | jq -r .message)"
+    commit_message="[geni] $(echo "$input" | yq -r '.message')"
     if [ "$has_failure" = "false" ]; then
         echo -e "${__BLUE}$commit_message${__RESET}"
         git commit --quiet -m "$commit_message" 2>/dev/null 1>/dev/null
