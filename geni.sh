@@ -180,7 +180,7 @@ function geni_write_files() {
             patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
             file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
             if [ $? -ne 0 ]; then
-                file_contents=$(wiggle --merge "$path" | __GENIUS__FUZZY_YAML_FIX <(echo "$patch_contents") 2>/dev/null)
+                file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
                 if [ $? -ne 0 ]; then
                     error "wiggle failed to apply patch for '$path'"
                     has_failure=true
