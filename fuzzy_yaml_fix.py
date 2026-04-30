@@ -95,6 +95,33 @@ def fuzzy_yaml_fixer(raw: str) -> str:
 
     >>> print(fuzzy_yaml_fixer("""
     ... files_to_write:
+    ...   - path: test.py
+    ...     file_contents: |
+    ...       print("hello")
+    ... message: Add test
+    ... </example_patch>
+    ... """))
+    files_to_write:
+      - path: test.py
+        file_contents: |
+          print("hello")
+    message: Add test
+
+    >>> print(fuzzy_yaml_fixer("""
+    ... files_to_write: []
+    ... message: test
+    ... </some_tag>
+    ...
+    ... </another_tag>
+    ... """))
+    files_to_write: []
+    message: test
+
+          print("hello")
+    message: Add test
+
+    >>> print(fuzzy_yaml_fixer("""
+    ... files_to_write:
     ...   - path: geni.sh
     ...     patch_contents: |
     ...       @@ -193,7 +193,7 @@
@@ -142,7 +169,9 @@ def fuzzy_yaml_fixer(raw: str) -> str:
         # Find trailing ``` that appears after YAML content ends
         lines = raw.strip().split("\n")
         # Remove trailing empty lines and trailing code fence if present
-        while lines and (lines[-1].strip() == "" or re.match(r"^```\s*$", lines[-1])):
+        while lines and (lines[-1].strip() == "" or 
+                         re.match(r"^```\s*$", lines[-1]) or
+                         re.match(r"^</[a-zA-Z_][a-zA-Z0-9_]*>\s*$", lines[-1])):
             lines.pop()
         raw = "\n".join(lines)
         
