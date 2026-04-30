@@ -45,6 +45,7 @@ function geni() {
         out_file="$geni_dir"/llm_stdout
         err_file="$geni_dir"/llm_stderr
         if llm_wrapper -s "$(geni_prompt)" "$@" 2>"$err_file" | geni_tee > "$out_file"; then
+            printf "${__ORANGE}$(cat "$err_file")${__RESET}\n"
             cat "$out_file" | geni_write_files
         else
             error 'llm failed'
