@@ -28,11 +28,17 @@ alias gpt-nano="llm_interactive -m gpt-5-nano"
 alias groq="llm_interactive -m groq/llama-3.3-70b-versatile"
 
 function llm_interactive() {
-    # highlight llm output in blue;
-    # this makes it easy to skim a terminal session to find llm output
-    printf "${__BLUE}"
-    llm_wrapper "$@" | tee >(xclip -selection clipboard)
-    printf "${__RESET}"
+    # only do special coloring/clipboard copy if the output is a terminal
+    if [ -t 1 ]; then
+        printf "${__BLUE}"
+        # xclip produces errors when an x clipboard is not present;
+        # the redirection ensures these errors are silenced;
+        # the || cat is needed to prevent a broken pipe error
+        llm_wrapper "$@" | tee >(xclip -selection clipboard >/dev/null 2>/dev/null || cat >/dev/null)
+        printf "${__RESET}"
+    else
+        llm_wrapper "$@"
+    fi
 }
 
 function llm_wrapper() {(
