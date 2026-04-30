@@ -13,6 +13,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/llm_utils.sh"
 
 # geni is the main public interface
 function geni() {
+    ####################
+    # STEP1: ensure git repo sane
+    ####################
     # geni will be automatically making commits,
     # so we want git in a sane state before running
     if git status --porcelain | grep -q '^[MADRC]'; then
@@ -23,75 +26,103 @@ function geni() {
         warning 'git repo dirty'
     fi
 
-    llm_wrapper -s "$(geni_prompt)" "$@" | pipe_helper | __GENIUS__process_response
+    ####################
+    # STEP2: generate/apply the patch
+    ####################
+    (
+        set -e
+        # we store all intermediate results in the .git/.geni folder;
+        # this allows inspecting the results if needed to debug errors
+        geni_dir="$(git rev-parse --git-dir)"/.geni
+        mkdir -p "$geni_dir"
+
+        # llm_wrapper can sometimes take a long time (minutes);
+        # geni_tee creates a "progress" bar for llm_wrapper;
+        # by default, if statements only consider the last command in the pipeline;
+        # the set -o pipefail option enforces that all commands must succeed to enter the if block;
+        # this is a "global" property, so we wrap this code in a subshell
+        # to avoid changing the default behavior for the caller of this function
+        set -o pipefail
+        out_file="$geni_dir"/llm_stdout
+        err_file="$geni_dir"/llm_stderr
+        if llm_wrapper -s "$(geni_prompt)" "$@" 2>"$err_file" | geni_tee > "$out_file"; then
+            printf "${__ORANGE}$(cat "$err_file")${__RESET}\n"
+            cat "$out_file" | python3 "$(dirname "${BASH_SOURCE[0]}")/fuzzy_yaml_fix.py" | geni_write_files
+        else
+            error 'llm failed'
+            printf "${__RED}$(sed -e 's/Error:/ERROR:/' "$err_file")${__RESET}\n" >&2
+        fi
+    )
 }
 
 ################################################################################
 # construct the system prompt
 ################################################################################
 
-__GENIUS__RESPONSE_SCHEMA='
-type: object
-required: ["files_to_write", "message"]
-properties:
-  files_to_write:
-    type: array
-    items:
-      type: object
-      oneOf:
-        - "required": ["patch_contents"]
-        - "required": ["file_contents"]
-      not:
-        required: ["patch_contents", "file_contents"]
-      properties:
-        path:
-          type: string
-          pattern: "^[a-zA-Z0-9_.][a-zA-Z0-9_./-]*(/[a-zA-Z0-9_.][a-zA-Z0-9_./-]*)*$"
-          description:
-            The path must be relative and not contain directory traversal (..).
-        patch_contents:
-          type: string
-          description:
-            A unified diff describing the changes to make to the specified file. This field should be non-null when the changes are relatively localized in the file and so the diff is much smaller than the overall file size.
-        file_contents:
-          type: string
-          description:
-            The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them.
-  message:
-    type: string
-    description:
-      A commit message for the changes in Tim Pope style. The message should have a 1 line imperative subject (<50 chars). Complicated commits can also have an additional paragraph up to 5 sentences. (The title and paragraph should be separated by a blank line.) The message should be helpful to a programmer reviewing git logs, be as succinct as possible, and should focus on the *why* of the changes.
-'
-
 function geni_prompt() {
     # NOTE:
     # this is a function and not a variable so that it gets rebuilt on every invokation;
     # this for example ensures that the result of `git ls-files` is current
     # this is global so that it is easy to inspect the value of the prompt
+    local schema="$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml")"
     if [ -s "AGENTS.md" ]; then
         agents_prompt="$ cat AGENTS.md
 $(cat "AGENTS.md")"
     fi
     cat <<EOF
 You are a coding agent. You will write files to achieve the tasks that the user specifies in their queries. Your response should always be in pure YAML and conform to the following schema:
-\`\`\`$__GENIUS__RESPONSE_SCHEMA\`\`\`
 
-The response must be pure YAML; no markdown code blocks and no other explanations.
+<schema>
+$schema
+</schema>
 
-Example response:
-\`\`\`
+Do not include any markdown codeblocks or other explanations.
+
+<example_write>
 files_to_write:
   - path: src/main.py
     file_contents: |
       print("hello")
 message: |
   Add main entry point
-\`\`\`
+</example_write>
+
+It is okay/encouraged to patch the same file multiple times instead of rewriting large files. Each patch must get its own entry in the files_to_write list.
+
+<example_patch>
+files_to_write:
+  - path: src/utils.py
+    patch_contents: |
+      --- a/src/utils.py
+      +++ b/src/utils.py
+      @@ -12,8 +12,9 @@ import os
+       def calculate_total(items):
+           """Calculate the total price of items."""
+           total = 0
+      -    for item in items:
+      -        total += item.price
+      +    for item in items:
+      +        if item.is_active:
+      +            total += item.price * item.quantity
+           return total
+  - path: src/utils.py
+    patch_contents: |
+      --- a/src/utils.py
+      +++ b/src/utils.py
+      @@ -45,7 +45,7 @@ def format_currency(amount):
+       def validate_item(item):
+           """Check if item is valid for purchase."""
+      -    return item.price > 0
+      +    return item.price > 0 and item.quantity > 0
+message: |
+  Fix total calculation and item validation
+
+  Total now respects quantity and active status. Validation
+  also checks for positive quantity.
+</example_patch>
 
 Use the following information to help guide your response.
 \`\`\`
-$ uname -a
-$(uname -a)
 $agents_prompt
 $ git ls-files
 $(git ls-files)
@@ -102,32 +133,6 @@ EOF
 ################################################################################
 # process the output of the LLM
 ################################################################################
-
-function __GENIUS__YAML2JSON() {
-    python3 -c '
-import sys, yaml, json, re
-
-raw = sys.stdin.read()
-lines = raw.split("\n")
-
-# Only strip top-level (column 0) code fences that wrap the entire response
-# Code fences inside YAML string values will be indented, so we ignore those
-first_fence = None
-last_fence = None
-for i, line in enumerate(lines):
-    if re.match(r"^```(ya?ml)?\s*$", line, re.IGNORECASE):
-        if first_fence is None:
-            first_fence = i
-        else:
-            last_fence = i
-
-if first_fence is not None and last_fence is not None:
-    raw = "\n".join(lines[first_fence + 1:last_fence])
-
-raw = raw.strip()
-json.dump(yaml.safe_load(raw), sys.stdout)
-' 2>/dev/null
-}
 
 function __GENIUS__git_diff() {
     fulldiff=$(git show HEAD --format="" --stat --patch | awk '
@@ -161,53 +166,52 @@ function __GENIUS__cleandiff() {
 '
 }
 
-function __GENIUS__process_response() {
-    input=$(cat)
-    git_dir=$(git rev-parse --git-dir)
-    echo "$input" > "$git_dir"/.geni.raw
+geni_response_schema="$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml"
 
-    json_response=$(echo "$input" | __GENIUS__YAML2JSON)
-    echo "$json_response" > "$git_dir"/.geni.raw.json
-    if [ $? -ne 0 ]; then
-        error 'failed to parse llm output as YAML'
-        error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
+function geni_write_files() {
+    input=$(cat)
+    geni_dir="$(git rev-parse --git-dir)"/.geni
+
+    # validate YAML syntax by attempting to parse it
+    if ! echo "$input" | yq '.' > /dev/null 2>&1; then
+        error 'llm failed to generate valid YAML'
+        hint 'usually the YAML is almost valid, but has a minor syntax error'
+        hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
+        hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
         return 1
     fi
-    schema=$(echo "$__GENIUS__RESPONSE_SCHEMA" | __GENIUS__YAML2JSON)
 
     # validate schema
-    if ! (jsonschema -i <(echo "$json_response") <(echo "$schema")) >/dev/null 2>&1; then
+    if ! echo "$input" | yq '.' | jsonschema <(yq '.' $geni_response_schema) 2>"$geni_dir"/check-jsonschema_stderr; then
         error 'llm response failed jsonschema check'
-        error "$(jsonschema -i <(echo "$json_response") <(echo "$schema") 2>/dev/null)"
-        error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
-        error "HINT: '$git_dir/.geni.raw.json' contains the converted json"
+        hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
+        hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
         return 1
     fi
 
     # process each file in the response
     has_failure=false
-    num_files=$(echo "$json_response" | jq '.files_to_write | length')
+    num_files=$(echo "$input" | yq '.files_to_write | length')
     for ((i=0; i<num_files; i++)); do
-        path=$(echo "$json_response" | jq -r ".files_to_write[$i].path")
+        path=$(echo "$input" | yq -r ".files_to_write[$i].path")
 
         mkdir -p "$(dirname "$path")"
 
         # compute the new file contents;
         # if the contents was given in the response, just extract from json;
         # else (a diff was given in the response), then we compute file_contents from the diff
-        if echo "$json_response" | jq -e ".files_to_write[$i].file_contents != null" > /dev/null; then
-            file_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].file_contents")
+        if [ "$(echo "$input" | yq -r ".files_to_write[$i].file_contents")" != "null" ]; then
+            file_contents=$(echo "$input" | yq -r ".files_to_write[$i].file_contents")
         else
-            patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
+            patch_contents=$(echo "$input" | yq -r ".files_to_write[$i].patch_contents")
             file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
             if [ $? -ne 0 ]; then
-                warning "patch failed for '$path', using wiggle"
                 file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
                 if [ $? -ne 0 ]; then
-                    error 'wiggle was unable to apply patch'
+                    error "wiggle failed to apply patch for '$path'"
                     has_failure=true
                 else
-                    warning 'wiggle applied patch successfully'
+                    warning "patch failed for '$path', wiggle patch succeeded"
                 fi
             fi
         fi
@@ -254,21 +258,26 @@ function __GENIUS__process_response() {
     # But we actually using the genitive of possession
     # (to say that this commit belongs to "genius").
     # It just so happens that geni is both the vocative and genitive form of genius.
-    msg=$(echo "$json_response" | jq -r .message)
-    echo -e "${__BLUE}$msg${__RESET}"
+    commit_message="[geni] $(echo "$input" | yq -r '.message')"
     if [ "$has_failure" = "false" ]; then
-        git commit --quiet -m "[geni] $msg" 2>/dev/null 1>/dev/null
+        echo -e "${__BLUE}$commit_message${__RESET}"
+        git commit --quiet -m "$commit_message" 2>/dev/null 1>/dev/null
         if [ $? -ne 0 ]; then
-            error 'git commit failed'
+            error 'git commit failed for unknown reason'
+            warning 'sanitize repo before proceeding'
+            git status
         else
             __GENIUS__git_diff
         fi
     else
         error 'not running git commit'
+        warning 'sanitize repo before proceeding'
+        git reset
+        git status
     fi
 }
 
-function pipe_helper() {
+function geni_tee() {
     # some functions take a long time to generate their output;
     # this helper can be used to monitor the progress of these functions;
     # it inspects the YAML stream to show file write progress
@@ -299,19 +308,29 @@ function pipe_helper() {
             in_files_section=false
         fi
         
+        # NOTE:
+        # the code below "dynamically parses" the YAML output;
+        # it is not fully correct (in that there are valid YAML outputs that will not get matched),
+        # but it is close-enough that it seems to always work for LLM output;
+        # we do not use a standard YAML parser because these need the entire input
+        # document to be present, and we want to parse the input as it comes in;
+        # the mild incorrectness is acceptable here because the purpose of this
+        # code is only to display the progress of the download from the LLM API,
+        # any incorrect parses affect these progress messages
+        # but not the final result (which uses a correct YAML parser)
         if [[ "$in_files_section" == true ]]; then
             # Capture path
-            if [[ "$line" =~ ^[[:space:]]+-?[[:space:]]*path:[[:space:]]*(.+)$ ]]; then
+            if [[ "$line" =~ ^[[:space:]]{0,4}-[[:space:]]*path:[[:space:]]*(.+)$ ]]; then
                 current_path="${BASH_REMATCH[1]}"
             fi
             
             # Detect file_contents (full write)
-            if [[ "$line" =~ ^[[:space:]]+file_contents: ]]; then
+            if [[ "$line" =~ ^[[:space:]]{0,4}file_contents: ]]; then
                 printf " $current_path(full)..." >&2
             fi
             
             # Detect patch_contents (patch)
-            if [[ "$line" =~ ^[[:space:]]+patch_contents: ]]; then
+            if [[ "$line" =~ ^[[:space:]]{0,4}patch_contents: ]]; then
                 printf " $current_path(patch)..." >&2
             fi
         fi

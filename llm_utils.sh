@@ -106,9 +106,9 @@ function llm_wrapper() {(
     done <<< "$MODEL_PRICES"
 
     if [[ $match_count -gt 1 ]]; then
-        echo "Warning: multiple pricing matches for '$model', using most expensive: $matched_model" >&2
+        warning "\nmultiple pricing matches for '$model', using most expensive: $matched_model"
     elif [[ $match_count -eq 0 ]]; then
-        echo "Warning: unknown model '$model', cost will show as \$0" >&2
+        warning "\nunknown model '$model', cost will show as \$0"
     fi
 
     ####################
@@ -122,8 +122,8 @@ function llm_wrapper() {(
     local stderr_file=$(mktemp)
     trap "rm -f '$stderr_file'" EXIT
     llm -s "$system_prompt" -m "$model" "$@" -u 2>"$stderr_file"
-    stderr_content=$(cat "$stderr_file")
     local exit_code=$?
+    stderr_content=$(cat "$stderr_file")
     latest_cid=$(llm logs list -n 1 --json | jq -r '.[] | .conversation_id' 2>/dev/null)
     # NOTE:
     # There is a minor race condition here.
@@ -164,11 +164,15 @@ __RED='\033[38;5;196m'
 __RESET='\033[0m'
 
 function warning() {
-    printf "${__ORANGE}WARNING: %s${__RESET}\n" "$*"
+    printf "${__ORANGE}WARNING: %s${__RESET}\n" "$*" >&2
+}
+
+function hint() {
+    printf "${__ORANGE}HINT: %s${__RESET}\n" "$*" >&2
 }
 
 function error() {
-    printf "${__RED}ERROR: %s${__RESET}\n" "$*"
+    printf "${__RED}ERROR: %s${__RESET}\n" "$*" >&2
 }
 
 # ttok has a bug that prints a bunch of junk to stderr
@@ -184,7 +188,7 @@ function __check_dependencies() {
     # so that the user can know whether our tools will work;
     # this function should always be updated to include new tools
     # if those tools are being used elsewhere in the code
-    local tools=(llm files-to-prompt ttok jq bc jsonschema python3 wiggle patch xclip)
+    local tools=(llm files-to-prompt ttok yq bc jsonschema python3 wiggle patch xclip)
     for tool in "${tools[@]}"; do
         command -v "$tool" &>/dev/null || warning ".ai_scripts missing dependency: $tool"
     done
