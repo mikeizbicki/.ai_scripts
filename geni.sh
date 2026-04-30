@@ -201,13 +201,12 @@ function __GENIUS__process_response() {
             patch_contents=$(echo "$json_response" | jq -r ".files_to_write[$i].patch_contents")
             file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
             if [ $? -ne 0 ]; then
-                warning "patch failed for '$path', using wiggle"
                 file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
                 if [ $? -ne 0 ]; then
-                    error 'wiggle was unable to apply patch'
+                    error "wiggle failed to apply patch for '$path'"
                     has_failure=true
                 else
-                    warning 'wiggle applied patch successfully'
+                    warning "patch failed for '$path', wiggle patch succeeded"
                 fi
             fi
         fi
@@ -254,17 +253,22 @@ function __GENIUS__process_response() {
     # But we actually using the genitive of possession
     # (to say that this commit belongs to "genius").
     # It just so happens that geni is both the vocative and genitive form of genius.
-    msg=$(echo "$json_response" | jq -r .message)
-    echo -e "${__BLUE}$msg${__RESET}"
+    commit_message="[geni] $(echo "$json_response" | jq -r .message)"
     if [ "$has_failure" = "false" ]; then
-        git commit --quiet -m "[geni] $msg" 2>/dev/null 1>/dev/null
+        echo -e "${__BLUE}$commit_message${__RESET}"
+        git commit --quiet -m "$commit_message" 2>/dev/null 1>/dev/null
         if [ $? -ne 0 ]; then
-            error 'git commit failed'
+            error 'git commit failed for unknown reason'
+            warning 'sanitize repo before proceeding'
+            git status
         else
             __GENIUS__git_diff
         fi
     else
         error 'not running git commit'
+        warning 'sanitize repo before proceeding'
+        git reset
+        git status
     fi
 }
 

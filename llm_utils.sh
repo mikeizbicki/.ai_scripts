@@ -106,9 +106,9 @@ function llm_wrapper() {(
     done <<< "$MODEL_PRICES"
 
     if [[ $match_count -gt 1 ]]; then
-        echo "Warning: multiple pricing matches for '$model', using most expensive: $matched_model" >&2
+        warning "\nmultiple pricing matches for '$model', using most expensive: $matched_model"
     elif [[ $match_count -eq 0 ]]; then
-        echo "Warning: unknown model '$model', cost will show as \$0" >&2
+        warning "\nunknown model '$model', cost will show as \$0"
     fi
 
     ####################
@@ -164,11 +164,11 @@ __RED='\033[38;5;196m'
 __RESET='\033[0m'
 
 function warning() {
-    printf "${__ORANGE}WARNING: %s${__RESET}\n" "$*"
+    printf "${__ORANGE}WARNING: %s${__RESET}\n" "$*" >&2
 }
 
 function error() {
-    printf "${__RED}ERROR: %s${__RESET}\n" "$*"
+    printf "${__RED}ERROR: %s${__RESET}\n" "$*" >&2
 }
 
 # ttok has a bug that prints a bunch of junk to stderr
