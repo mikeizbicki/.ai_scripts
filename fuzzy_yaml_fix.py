@@ -92,6 +92,35 @@ def fuzzy_yaml_fixer(raw: str) -> str:
         file_contents: |
           print("hello")
     message: Add test
+
+    >>> print(fuzzy_yaml_fixer("""
+    ... files_to_write:
+    ...   - path: geni.sh
+    ...     patch_contents: |
+    ...       @@ -193,7 +193,7 @@
+    ...        function __GENIUS__YAML2JSON() {
+    ...       -    python3 "$(dirname "${BASH_SOURCE[0]}")/geni-utils.py" 2>/dev/null
+    ...       +    python3 -c 'import yaml; import json; import sys; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' 2>/dev/null
+    ...        }
+    ... message: |
+    ...   Simplify yaml2json conversion
+    ...
+    ...
+    ...
+    ... ```
+    ...
+    ...
+    ... """))
+    files_to_write:
+      - path: geni.sh
+        patch_contents: |
+          @@ -193,7 +193,7 @@
+           function __GENIUS__YAML2JSON() {
+          -    python3 "$(dirname "${BASH_SOURCE[0]}")/geni-utils.py" 2>/dev/null
+          +    python3 -c 'import yaml; import json; import sys; json.dump(yaml.safe_load(sys.stdin), sys.stdout)' 2>/dev/null
+           }
+    message: |
+      Simplify yaml2json conversion
     '''
     lines = raw.split("\n")
 
@@ -109,7 +138,15 @@ def fuzzy_yaml_fixer(raw: str) -> str:
     if first_fence is not None and last_fence is not None:
         raw = "\n".join(lines[first_fence + 1:last_fence])
     else:
-        # No code fences found, try to strip leading prose text by finding
+        # Check for trailing fence without opening fence (malformed output)
+        # Find trailing ``` that appears after YAML content ends
+        lines = raw.strip().split("\n")
+        # Remove trailing empty lines and trailing code fence if present
+        while lines and (lines[-1].strip() == "" or re.match(r"^```\s*$", lines[-1])):
+            lines.pop()
+        raw = "\n".join(lines)
+        
+        # Now try to strip leading prose text by finding
         # the first line that looks like YAML (key: value or list item)
         lines = raw.strip().split("\n")
         yaml_start_pattern = re.compile(
