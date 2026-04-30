@@ -98,6 +98,7 @@ def fuzzy_yaml_fixer(raw: str) -> str:
     '''
     lines = raw.split("\n")
 
+    # Try to find matching top-level code fences (```yaml or ```)
     first_fence = None
     last_fence = None
     for i, line in enumerate(lines):
@@ -107,60 +108,22 @@ def fuzzy_yaml_fixer(raw: str) -> str:
             else:
                 last_fence = i
 
+    # If we found a matching pair of fences, extract content between them
     if first_fence is not None and last_fence is not None:
         raw = "\n".join(lines[first_fence + 1:last_fence])
     else:
-        # No code fences found, try to strip leading prose text
-        raw = strip_leading_prose(raw)
+        # No code fences found, try to strip leading prose text by finding
+        # the first line that looks like YAML (key: value or list item)
+        lines = raw.strip().split("\n")
+        yaml_start_pattern = re.compile(
+            r'^([a-zA-Z_][a-zA-Z0-9_]*:\s|[a-zA-Z_][a-zA-Z0-9_]*:$|- )'
+        )
+        for i, line in enumerate(lines):
+            if yaml_start_pattern.match(line):
+                raw = "\n".join(lines[i:])
+                break
 
     return raw.strip()
-
-
-def strip_leading_prose(raw: str) -> str:
-    r"""
-    Strip leading English prose that appears before YAML content.
-
-    Looks for the first line that appears to be valid YAML (starts with
-    a key: pattern or list item) and returns content from that point.
-
-    >>> print(strip_leading_prose("key: value"))
-    key: value
-
-    >>> print(strip_leading_prose("some prose\nkey: value"))
-    key: value
-
-    >>> print(strip_leading_prose("some prose\n\nmore prose\n\nkey: value\nother: stuff"))
-    key: value
-    other: stuff
-
-    >>> print(strip_leading_prose("Here is the response:\n- item1\n- item2"))
-    - item1
-    - item2
-
-    >>> print(strip_leading_prose("Explanation text\nfiles_to_write:\n  - path: foo"))
-    files_to_write:
-      - path: foo
-
-    >>> print(strip_leading_prose("no yaml here at all"))
-    no yaml here at all
-    """
-    lines = raw.strip().split("\n")
-
-    # Pattern for lines that look like YAML structure starts
-    # - key: value (mapping)
-    # - "- item" (list)
-    # Note: we need to be careful not to match prose that happens to have colons
-    yaml_start_pattern = re.compile(
-        r'^([a-zA-Z_][a-zA-Z0-9_]*:\s|[a-zA-Z_][a-zA-Z0-9_]*:$|- )'
-    )
-
-    for i, line in enumerate(lines):
-        if yaml_start_pattern.match(line):
-            # Found what looks like YAML, return from here
-            return "\n".join(lines[i:])
-
-    # No clear YAML start found, return original
-    return raw
 
 
 def main() -> int:
