@@ -48,7 +48,7 @@ function geni() {
             cat "$out_file" | geni_write_files
         else
             error 'llm failed'
-            echo "${__RED}$(cat "$err_file")${__RESET}"
+            printf "${__RED}$(sed -e 's/Error:/ERROR:/' "$err_file")${__RESET}\n" >&2
         fi
     )
 }

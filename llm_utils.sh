@@ -122,8 +122,8 @@ function llm_wrapper() {(
     local stderr_file=$(mktemp)
     trap "rm -f '$stderr_file'" EXIT
     llm -s "$system_prompt" -m "$model" "$@" -u 2>"$stderr_file"
-    stderr_content=$(cat "$stderr_file")
     local exit_code=$?
+    stderr_content=$(cat "$stderr_file")
     latest_cid=$(llm logs list -n 1 --json | jq -r '.[] | .conversation_id' 2>/dev/null)
     # NOTE:
     # There is a minor race condition here.
