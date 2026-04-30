@@ -30,44 +30,12 @@ function geni() {
 # construct the system prompt
 ################################################################################
 
-__GENIUS__RESPONSE_SCHEMA='
-type: object
-required: ["files_to_write", "message"]
-properties:
-  files_to_write:
-    type: array
-    items:
-      type: object
-      oneOf:
-        - "required": ["patch_contents"]
-        - "required": ["file_contents"]
-      not:
-        required: ["patch_contents", "file_contents"]
-      properties:
-        path:
-          type: string
-          pattern: "^[a-zA-Z0-9_.][a-zA-Z0-9_./-]*(/[a-zA-Z0-9_.][a-zA-Z0-9_./-]*)*$"
-          description:
-            The path must be relative and not contain directory traversal (..).
-        patch_contents:
-          type: string
-          description:
-            A unified diff describing the changes to make to the specified file. This field should be non-null when the changes are relatively localized in the file and so the diff is much smaller than the overall file size.
-        file_contents:
-          type: string
-          description:
-            The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them.
-  message:
-    type: string
-    description:
-      A commit message for the changes in Tim Pope style. The message should have a 1 line imperative subject (<50 chars). Complicated commits can also have an additional paragraph up to 5 sentences. (The title and paragraph should be separated by a blank line.) The message should be helpful to a programmer reviewing git logs, be as succinct as possible, and should focus on the *why* of the changes.
-'
-
 function geni_prompt() {
     # NOTE:
     # this is a function and not a variable so that it gets rebuilt on every invokation;
     # this for example ensures that the result of `git ls-files` is current
     # this is global so that it is easy to inspect the value of the prompt
+    __GENIUS__RESPONSE_SCHEMA="$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml")"
     if [ -s "AGENTS.md" ]; then
         agents_prompt="$ cat AGENTS.md
 $(cat "AGENTS.md")"
@@ -104,29 +72,7 @@ EOF
 ################################################################################
 
 function __GENIUS__YAML2JSON() {
-    python3 -c '
-import sys, yaml, json, re
-
-raw = sys.stdin.read()
-lines = raw.split("\n")
-
-# Only strip top-level (column 0) code fences that wrap the entire response
-# Code fences inside YAML string values will be indented, so we ignore those
-first_fence = None
-last_fence = None
-for i, line in enumerate(lines):
-    if re.match(r"^```(ya?ml)?\s*$", line, re.IGNORECASE):
-        if first_fence is None:
-            first_fence = i
-        else:
-            last_fence = i
-
-if first_fence is not None and last_fence is not None:
-    raw = "\n".join(lines[first_fence + 1:last_fence])
-
-raw = raw.strip()
-json.dump(yaml.safe_load(raw), sys.stdout)
-' 2>/dev/null
+    python3 "$(dirname "${BASH_SOURCE[0]}")/geni-utils.py" 2>/dev/null
 }
 
 function __GENIUS__git_diff() {
@@ -173,7 +119,7 @@ function __GENIUS__process_response() {
         error "HINT: '$git_dir/.geni.raw' contains the raw llm output"
         return 1
     fi
-    schema=$(echo "$__GENIUS__RESPONSE_SCHEMA" | __GENIUS__YAML2JSON)
+    schema=$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml" | __GENIUS__YAML2JSON)
 
     # validate schema
     if ! (jsonschema -i <(echo "$json_response") <(echo "$schema")) >/dev/null 2>&1; then
