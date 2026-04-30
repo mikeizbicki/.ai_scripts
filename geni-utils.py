@@ -8,11 +8,13 @@ import yaml
 
 def fuzzy_yaml_fixer(raw: str) -> str:
     r'''
-    Fix YAML input by stripping top-level code fences if present.
+    Fix YAML input by stripping top-level code fences or leading prose if present.
 
-    The conversion is "fuzzy" in that it strips only a wrapping pair of
-    top-level markdown code fences. Indented code fences inside YAML block
-    scalars are preserved as data.
+    The conversion is "fuzzy" in that it:
+    1. Strips only a wrapping pair of top-level markdown code fences
+    2. Strips leading English prose that appears before YAML content
+
+    Indented code fences inside YAML block scalars are preserved as data.
 
     >>> print(fuzzy_yaml_fixer("""
     ... message: hello
@@ -115,11 +117,32 @@ def fuzzy_yaml_fixer(raw: str) -> str:
 
 
 def strip_leading_prose(raw: str) -> str:
-    """
+    r"""
     Strip leading English prose that appears before YAML content.
 
     Looks for the first line that appears to be valid YAML (starts with
     a key: pattern or list item) and returns content from that point.
+
+    >>> print(strip_leading_prose("key: value"))
+    key: value
+
+    >>> print(strip_leading_prose("some prose\nkey: value"))
+    key: value
+
+    >>> print(strip_leading_prose("some prose\n\nmore prose\n\nkey: value\nother: stuff"))
+    key: value
+    other: stuff
+
+    >>> print(strip_leading_prose("Here is the response:\n- item1\n- item2"))
+    - item1
+    - item2
+
+    >>> print(strip_leading_prose("Explanation text\nfiles_to_write:\n  - path: foo"))
+    files_to_write:
+      - path: foo
+
+    >>> print(strip_leading_prose("no yaml here at all"))
+    no yaml here at all
     """
     lines = raw.strip().split("\n")
 
