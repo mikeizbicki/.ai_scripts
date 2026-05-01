@@ -27,6 +27,7 @@ function ralfi() {
     #
     # All additional arguments are forwarded to geni.
     # The initial prompt comes from stdin (supports heredocs, pipes, etc.)
+    echo 'STEP 0'
 
     if [ $# -lt 1 ]; then
         error 'usage: ralfi <test_command> [geni_args...] <<< "prompt"'
@@ -45,6 +46,7 @@ function ralfi() {
     # We need to determine if test_cmd is a file path or a shell command.
     # If it looks like a path (contains / or starts with .), verify it's executable.
     # Otherwise, verify the command exists via `command -v`.
+    echo 'STEP 1'
 
     if [[ "$test_cmd" == ./* || "$test_cmd" == /* || "$test_cmd" == ../* ]]; then
         # Looks like a path
@@ -71,25 +73,27 @@ function ralfi() {
     ####################
     # This is a sanity check. If tests already pass, there's nothing to do.
     # We capture output here to show it to the user if tests unexpectedly pass.
+    echo 'STEP 2'
 
-    echo "${__ORANGE}Running initial test to verify it fails...${__RESET}"
-    local test_output
-    test_output=$(eval "$test_cmd" 2>&1)
-    local test_exit_code=$?
-
-    if [ $test_exit_code -eq 0 ]; then
-        error "tests already pass - nothing to do"
-        hint "ralfi expects failing tests that need to be fixed"
-        return 1
-    fi
-
-    echo "${__BLUE}Tests fail as expected (exit code: $test_exit_code). Starting ralfi loop.${__RESET}"
+    #echo -e "${__ORANGE}Running initial test to verify it fails...${__RESET}"
+    #local test_output
+    #test_output=$(eval "$test_cmd" 2>&1)
+    #local test_exit_code=$?
+#
+    #if [ $test_exit_code -eq 0 ]; then
+        #error "tests already pass - nothing to do"
+        #hint "ralfi expects failing tests that need to be fixed"
+        #return 1
+    #fi
+#
+    #echo -e "${__BLUE}Tests fail as expected (exit code: $test_exit_code). Starting ralfi loop.${__RESET}"
 
     ####################
     # STEP 3: Read initial prompt from stdin
     ####################
     # We consume stdin now because we'll need it for the first geni call.
     # Subsequent calls use -c to continue the conversation.
+    echo 'STEP 3'
 
     local initial_prompt
     initial_prompt=$(cat)
@@ -105,6 +109,7 @@ function ralfi() {
     ####################
     # We need a clean state because we'll be creating branches and merging.
     # This is stricter than geni's check - we don't allow dirty repos at all.
+    echo 'STEP 4'
 
     if ! git rev-parse --git-dir &>/dev/null; then
         error "not in a git repository"
@@ -126,6 +131,7 @@ function ralfi() {
     #   - Review before merging (if we don't auto-merge)
     #
     # Timestamp format: YYYYMMDD_HHMMSS (git-safe, no special chars)
+    echo 'STEP 5'
 
     local original_branch
     original_branch=$(git rev-parse --abbrev-ref HEAD)
@@ -140,20 +146,21 @@ function ralfi() {
         return 1
     fi
 
-    echo "${__BLUE}Created working branch: $working_branch${__RESET}"
+    echo -e "${__BLUE}Created working branch: $working_branch${__RESET}"
 
     ####################
     # STEP 6: Initial geni call
     ####################
     # The first call uses the user's prompt directly.
     # We pass all extra arguments ($@) to geni.
+    echo 'STEP 6'
 
     local iteration=1
-    echo "${__ORANGE}[ralfi] Iteration $iteration${__RESET}"
+    echo -e "${__ORANGE}[ralfi] Iteration $iteration${__RESET}"
 
     # Run geni with the initial prompt
-    # Note: We use echo and pipe rather than <<< to preserve newlines properly
-    if ! echo "$initial_prompt" | geni "$@"; then
+    # Note: We use echo -e and pipe rather than <<< to preserve newlines properly
+    if ! echo -e "$initial_prompt" | geni "$@"; then
         error "geni failed on iteration $iteration"
         __ralfi_abort "$original_branch" "$working_branch"
         return 1
@@ -165,15 +172,16 @@ function ralfi() {
     # After each geni call, run tests.
     # If they fail, construct a new prompt with the failure output and continue.
     # We use geni -c to continue the conversation, maintaining context.
+    echo 'STEP 7'
 
     while true; do
         # Run tests and capture output
-        echo "${__ORANGE}Running tests...${__RESET}"
+        echo -e "${__ORANGE}Running tests...${__RESET}"
         test_output=$(eval "$test_cmd" 2>&1)
         test_exit_code=$?
 
         if [ $test_exit_code -eq 0 ]; then
-            echo "${__GREEN}Tests pass!${__RESET}"
+            echo -e "${__GREEN}Tests pass!${__RESET}"
             break
         fi
 
@@ -188,15 +196,15 @@ function ralfi() {
             return 1
         fi
 
-        echo "${__ORANGE}[ralfi] Iteration $iteration (tests failed with exit code $test_exit_code)${__RESET}"
+        echo -e "${__ORANGE}[ralfi] Iteration $iteration (tests failed with exit code $test_exit_code)${__RESET}"
 
         # Construct continuation prompt with test failure details
         # We include both the command and its output so the LLM has full context.
         # Truncate very long outputs to avoid token limits.
         local max_output_lines=100
         local truncated_output
-        if [ "$(echo "$test_output" | wc -l)" -gt $max_output_lines ]; then
-            truncated_output=$(echo "$test_output" | tail -n $max_output_lines)
+        if [ "$(echo -e "$test_output" | wc -l)" -gt $max_output_lines ]; then
+            truncated_output=$(echo -e "$test_output" | tail -n $max_output_lines)
             truncated_output="[... truncated to last $max_output_lines lines ...]
 $truncated_output"
         else
@@ -217,7 +225,7 @@ Please analyze the test failures and make the necessary fixes."
 
         # Continue conversation with -c flag
         # The -c flag must come before other args to be recognized by llm
-        if ! echo "$continuation_prompt" | geni -c "$@"; then
+        if ! echo -e "$continuation_prompt" | geni -c "$@"; then
             error "geni failed on iteration $iteration"
             hint "you are on branch '$working_branch' with partial progress"
             return 1
@@ -232,6 +240,7 @@ Please analyze the test failures and make the necessary fixes."
     #   - >1 iterations: squash into one commit with summary message
     #
     # The squash case uses llm to generate a good summary of all changes.
+    echo 'STEP 8'
 
     local num_commits
     num_commits=$(git rev-list --count "$original_branch".."$working_branch")
@@ -246,13 +255,13 @@ Please analyze the test failures and make the necessary fixes."
 
     if [ "$num_commits" -eq 1 ]; then
         # Simple case: fast-forward merge preserves the single [geni] commit
-        echo "${__BLUE}Single iteration - fast-forward merging...${__RESET}"
+        echo -e "${__BLUE}Single iteration - fast-forward merging...${__RESET}"
         git checkout "$original_branch"
         git merge --ff-only "$working_branch"
         git branch -d "$working_branch"
     else
         # Multiple iterations: squash and generate summary
-        echo "${__BLUE}Multiple iterations ($num_commits commits) - squashing...${__RESET}"
+        echo -e "${__BLUE}Multiple iterations ($num_commits commits) - squashing...${__RESET}"
 
         # Collect all commit messages and diffs for the summary prompt
         local all_commits
@@ -277,9 +286,9 @@ Write a concise commit message (max 50 chars for subject line) summarizing what 
 Focus on the end result, not the iteration process.
 Output ONLY the commit message, nothing else."
 
-        echo "${__ORANGE}Generating summary commit message...${__RESET}"
+        echo -e "${__ORANGE}Generating summary commit message...${__RESET}"
         local summary_message
-        summary_message=$(echo "$summary_prompt" | llm 2>/dev/null)
+        summary_message=$(echo -e "$summary_prompt" | llm 2>/dev/null)
         
         if [ -z "$summary_message" ]; then
             # Fallback if llm fails
@@ -303,10 +312,10 @@ Output ONLY the commit message, nothing else."
         # Clean up working branch
         git branch -D "$working_branch"
 
-        echo "${__BLUE}$summary_message${__RESET}"
+        echo -e "${__BLUE}$summary_message${__RESET}"
     fi
 
-    echo "${__GREEN}[ralfi] Completed successfully in $iteration iteration(s)${__RESET}"
+    echo -e "${__GREEN}[ralfi] Completed successfully in $iteration iteration(s)${__RESET}"
     git show HEAD --format="" --stat
 }
 
@@ -320,8 +329,9 @@ function __ralfi_abort() {
     local original_branch="$1"
     local working_branch="$2"
     
-    warning "aborting ralfi"
+    error "aborting ralfi"
     hint "working branch '$working_branch' preserved for inspection"
     hint "to return to original: git checkout $original_branch"
     hint "to delete working branch: git branch -D $working_branch"
 }
+

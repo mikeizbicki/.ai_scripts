@@ -87,7 +87,7 @@ message: |
   Add main entry point
 </example_write>
 
-It is okay/encouraged to patch the same file multiple times instead of rewriting large files. Each patch must get its own entry in the files_to_write list.
+It is okay/encouraged to patch the same file multiple times instead of rewriting large files. Each patch must get its own entry in the files_to_write list. The unified diff should not include blank lines in the context.
 
 <example_patch>
 files_to_write:
