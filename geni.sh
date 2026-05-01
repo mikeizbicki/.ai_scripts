@@ -290,6 +290,7 @@ function geni_tee() {
     local in_files_section=false
     local current_path=""
     local write_type=""
+    local line_counter=0
     
     while IFS= read -r line || [[ -n "$line" ]]; do
         if [[ "$first_line" == true ]]; then
@@ -324,16 +325,26 @@ function geni_tee() {
             # Capture path
             if [[ "$line" =~ ^[[:space:]]{0,4}-[[:space:]]*path:[[:space:]]*(.+)$ ]]; then
                 current_path="${BASH_REMATCH[1]}"
+                line_counter=0
             fi
             
             # Detect file_contents (full write)
             if [[ "$line" =~ ^[[:space:]]{0,4}file_contents: ]]; then
                 printf " $current_path(full)..." >&2
+                line_counter=0
             fi
             
             # Detect patch_contents (patch)
             if [[ "$line" =~ ^[[:space:]]{0,4}patch_contents: ]]; then
                 printf " $current_path(patch)..." >&2
+            fi
+        fi
+        
+        # Print a dot every 10 lines
+        if [[ "$in_files_section" == true && -n "$current_path" ]]; then
+            ((line_counter++))
+            if (( line_counter % 10 == 0 )); then
+                printf "." >&2
             fi
         fi
     done
