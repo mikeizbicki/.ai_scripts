@@ -30,7 +30,6 @@ function geni() {
     # STEP2: generate/apply the patch
     ####################
     (
-        set -e
         # we store all intermediate results in the .git/.geni folder;
         # this allows inspecting the results if needed to debug errors
         geni_dir="$(git rev-parse --git-dir)"/.geni
@@ -51,6 +50,7 @@ function geni() {
         else
             error 'llm failed'
             printf "${__RED}$(sed -e 's/Error:/ERROR:/' "$err_file")${__RESET}\n" >&2
+            return 1
         fi
     )
 }
@@ -127,6 +127,8 @@ $agents_prompt
 $ git ls-files
 $(git ls-files)
 \`\`\`
+
+Never modify tests unless the instructions specifically say to.
 EOF
 }
 
@@ -265,7 +267,7 @@ function geni_write_files() {
         if [ $? -ne 0 ]; then
             error 'git commit failed for unknown reason'
             warning 'sanitize repo before proceeding'
-            git status
+        return 1
         else
             __GENIUS__git_diff
         fi
@@ -273,7 +275,7 @@ function geni_write_files() {
         error 'not running git commit'
         warning 'sanitize repo before proceeding'
         git reset
-        git status
+        return 1
     fi
 }
 
