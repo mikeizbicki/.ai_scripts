@@ -34,7 +34,7 @@ function llm_interactive() {
         # xclip produces errors when an x clipboard is not present;
         # the redirection ensures these errors are silenced;
         # the || cat is needed to prevent a broken pipe error
-        llm_wrapper "$@" | tee >(xclip -selection clipboard >/dev/null 2>/dev/null || cat >/dev/null)
+        llm_wrapper "$@" | tee >(xclip -selection clipboard >/dev/null 2>/dev/null || cat >/dev/null &)
         printf "${__RESET}"
     else
         llm_wrapper "$@"
@@ -124,7 +124,12 @@ function llm_wrapper() {(
     llm -s "$system_prompt" -m "$model" "$@" -u 2>"$stderr_file"
     local exit_code=$?
     stderr_content=$(cat "$stderr_file")
-    latest_cid=$(llm logs list -n 1 --json | jq -r '.[] | .conversation_id' 2>/dev/null)
+
+    # NOTE:
+    # we originally computed the cid using the code
+    # latest_cid=$(llm logs list -n 1 --json | jq -r '.[] | .conversation_id' 2>/dev/null)
+    # but this is slow, so we directly query the sqlite3 database
+    latest_cid=$(sqlite3 "$HOME/.config/io.datasette.llm/logs.db" "SELECT conversation_id FROM responses ORDER BY id DESC LIMIT 1")
     # NOTE:
     # There is a minor race condition here.
     # The llm logs command above extracts the cid of the most recent conversation, which is almost certainly the conversation from the llm call above.
