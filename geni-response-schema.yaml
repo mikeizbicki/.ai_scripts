@@ -26,4 +26,4 @@ oneOf:
       clarification_needed:
         type: string
         description:
-          If the user's specified task is not possible to complete with the provided information, explain why and what information is needed to proceed. This field should only be provided if files_to_write and message are both null.
+          If the user's specified task is not possible to complete with the provided information, explain why and what information is needed to proceed. For example, if the user is asking you to modify a file but has not given you contents to the file, you must state so here.

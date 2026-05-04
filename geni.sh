@@ -178,7 +178,7 @@ function geni_write_files() {
     if [ -n "$clarification" ]; then
         printf "${__YELLOW}Clarification needed:${__RESET}\n"
         printf "${__BLUE}%s${__RESET}\n" "$clarification"
-        return 0
+        return 2
     fi
 
     ####################
