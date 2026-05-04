@@ -177,7 +177,7 @@ function geni_write_files() {
     clarification=$(echo "$input" | yq -r '.clarification_needed // empty')
     if [ -n "$clarification" ]; then
         printf "${__YELLOW}Clarification needed:${__RESET}\n"
-        printf "%s\n" "$clarification"
+        printf "${__BLUE}%s${__RESET}\n" "$clarification"
         return 0
     fi
 
