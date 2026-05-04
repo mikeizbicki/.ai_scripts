@@ -66,8 +66,10 @@ function geni_prompt() {
     # this is global so that it is easy to inspect the value of the prompt
     local schema="$(cat "$(dirname "${BASH_SOURCE[0]}")/geni-response-schema.yaml")"
     if [ -s "AGENTS.md" ]; then
-        agents_prompt="$ cat AGENTS.md
-$(cat "AGENTS.md")"
+        agents_prompt="
+$ cat AGENTS.md
+$(cat AGENTS.md)
+"
     fi
     cat <<EOF
 You are a coding agent. You will write files to achieve the tasks that the user specifies in their queries. Your response should always be in pure YAML and conform to the following schema:
@@ -78,52 +80,25 @@ $schema
 
 Do not include any markdown codeblocks or other explanations.
 
-<example_write>
+<example>
 files_to_write:
   - path: src/main.py
     file_contents: |
       print("hello")
+      print("world")
 message: |
-  Add main entry point
-</example_write>
+  Add basic hello world
+</example>
 
-It is okay/encouraged to patch the same file multiple times instead of rewriting large files. Each patch must get its own entry in the files_to_write list. The unified diff should not include blank lines in the context.
-
-<example_patch>
-files_to_write:
-  - path: src/utils.py
-    patch_contents: |
-      --- a/src/utils.py
-      +++ b/src/utils.py
-      @@ -12,8 +12,9 @@ import os
-       def calculate_total(items):
-           """Calculate the total price of items."""
-           total = 0
-      -    for item in items:
-      -        total += item.price
-      +    for item in items:
-      +        if item.is_active:
-      +            total += item.price * item.quantity
-           return total
-  - path: src/utils.py
-    patch_contents: |
-      --- a/src/utils.py
-      +++ b/src/utils.py
-      @@ -45,7 +45,7 @@ def format_currency(amount):
-       def validate_item(item):
-           """Check if item is valid for purchase."""
-      -    return item.price > 0
-      +    return item.price > 0 and item.quantity > 0
-message: |
-  Fix total calculation and item validation
-
-  Total now respects quantity and active status. Validation
-  also checks for positive quantity.
-</example_patch>
+<example>
+clarification_needed:
+  The file src/utils.py was not provided. Please share its contents
+  so I can add the requested helper function.
+</example>
 
 Use the following information to help guide your response.
-\`\`\`
-$agents_prompt
+
+\`\`\`$agents_prompt
 $ git ls-files
 $(git ls-files)
 \`\`\`
@@ -174,6 +149,10 @@ function geni_write_files() {
     input=$(cat)
     geni_dir="$(git rev-parse --git-dir)"/.geni
 
+    ####################
+    # STEP0: validate input
+    ####################
+
     # validate YAML syntax by attempting to parse it
     if ! echo "$input" | yq '.' > /dev/null 2>&1; then
         error 'llm failed to generate valid YAML'
@@ -190,6 +169,21 @@ function geni_write_files() {
         hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
         return 1
     fi
+
+    ####################
+    # STEP1: process clarification_needed
+    ####################
+
+    clarification=$(echo "$input" | yq -r '.clarification_needed // empty')
+    if [ -n "$clarification" ]; then
+        printf "${__YELLOW}Clarification needed:${__RESET}\n"
+        printf "${__BLUE}%s${__RESET}\n" "$clarification"
+        return 2
+    fi
+
+    ####################
+    # STEP2: process file changes
+    ####################
 
     # process each file in the response
     has_failure=false
