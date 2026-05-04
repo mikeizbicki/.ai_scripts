@@ -149,6 +149,10 @@ function geni_write_files() {
     input=$(cat)
     geni_dir="$(git rev-parse --git-dir)"/.geni
 
+    ####################
+    # STEP0: validate input
+    ####################
+
     # validate YAML syntax by attempting to parse it
     if ! echo "$input" | yq '.' > /dev/null 2>&1; then
         error 'llm failed to generate valid YAML'
@@ -165,6 +169,21 @@ function geni_write_files() {
         hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
         return 1
     fi
+
+    ####################
+    # STEP1: process clarification_needed
+    ####################
+
+    clarification=$(echo "$input" | yq -r '.clarification_needed // empty')
+    if [ -n "$clarification" ]; then
+        printf "${__YELLOW}Clarification needed:${__RESET}\n"
+        printf "%s\n" "$clarification"
+        return 0
+    fi
+
+    ####################
+    # STEP2: process file changes
+    ####################
 
     # process each file in the response
     has_failure=false
