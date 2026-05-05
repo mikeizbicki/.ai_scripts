@@ -1,3 +1,4 @@
 *.sw?
 tmp
 __pycache__
+geni_tools.egg-info

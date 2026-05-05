@@ -9,10 +9,10 @@ __GENIUS__MAX_FILE_LINES=300
 __GENIUS__MAX_DISPLAY_SIZE=20
 
 # Store absolute path of geni.sh at source time
-__GENIUS__SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+geni_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ensure llm_utils.sh available
-source "$__GENIUS__SCRIPT_DIR/llm_utils.sh"
+source "$geni_script_dir/llm_utils.sh"
 
 # geni is the main public interface
 function geni() {
@@ -49,7 +49,7 @@ function geni() {
         err_file="$geni_dir"/llm_stderr
         if llm_wrapper -s "$(geni_prompt)" "$@" 2>"$err_file" | geni_tee > "$out_file"; then
             printf "${__ORANGE}$(cat "$err_file")${__RESET}\n"
-            cat "$out_file" | python3 "$__GENIUS__SCRIPT_DIR/fuzzy_yaml_fix.py" | geni_write_files
+            cat "$out_file" | fuzzy_yaml_fix | geni_write_files
         else
             error 'llm failed'
             printf "${__RED}$(sed -e 's/Error:/ERROR:/' "$err_file")${__RESET}\n" >&2
@@ -67,7 +67,7 @@ function geni_prompt() {
     # this is a function and not a variable so that it gets rebuilt on every invokation;
     # this for example ensures that the result of `git ls-files` is current
     # this is global so that it is easy to inspect the value of the prompt
-    local schema="$(cat "$__GENIUS__SCRIPT_DIR/geni-response-schema.yaml")"
+    local schema="$(cat "$geni_script_dir/geni-response-schema.yaml")"
     if [ -s "AGENTS.md" ]; then
         agents_prompt="
 $ cat AGENTS.md
@@ -149,7 +149,7 @@ function __GENIUS__git_diff() {
     fi
 }
 
-__GENIUS__RESPONSE_SCHEMA="$__GENIUS__SCRIPT_DIR/geni-response-schema.yaml"
+__GENIUS__RESPONSE_SCHEMA="$geni_script_dir/geni-response-schema.yaml"
 
 function geni_write_files() {
     input=$(cat)
@@ -253,7 +253,7 @@ function geni_write_files() {
 
             # Extract patches and apply
             patches_json=$(echo "$input" | yq -r ".files_to_write[$i].file_patch | tojson")
-            if ! echo "$patches_json" | python3 "$__GENIUS__SCRIPT_DIR/patch_file.py" "$path" 2>"$geni_dir"/patch_stderr; then
+            if ! echo "$patches_json" | patch_file "$path" 2>"$geni_dir"/patch_stderr; then
                 error "patch failed for '$path'"
                 cat "$geni_dir"/patch_stderr >&2
                 has_failure=true

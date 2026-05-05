@@ -193,7 +193,7 @@ function __check_dependencies() {
     # so that the user can know whether our tools will work;
     # this function should always be updated to include new tools
     # if those tools are being used elsewhere in the code
-    local tools=(llm files-to-prompt ttok yq bc jsonschema python3 wiggle patch xclip)
+    local tools=(llm files-to-prompt ttok yq bc jsonschema python3 wiggle patch xclip geni-fuzzy-yaml-fix geni-patch-file)
     for tool in "${tools[@]}"; do
         command -v "$tool" &>/dev/null || warning ".ai_scripts missing dependency: $tool"
     done
