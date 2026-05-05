@@ -7,7 +7,7 @@ name = "geni-tools"
 version = "0.1.0"
 description = "Python utilities for the geni coding agent"
 requires-python = ">=3.8"
-dependencies = []
+dynamic = ["dependencies"]
 
 [project.scripts]
 fuzzy_yaml_fix = "fuzzy_yaml_fix:main"
@@ -15,3 +15,6 @@ patch_file = "patch_file:main"
 
 [tool.setuptools.packages.find]
 where = ["./python"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
