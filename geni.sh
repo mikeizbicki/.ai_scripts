@@ -94,6 +94,20 @@ message: |
 </example>
 
 <example>
+files_to_write:
+  - path: src/utils.py
+    file_patch:
+      - find: |
+          def old_function():
+              return 1
+        replace: |
+          def old_function():
+              return 2
+message: |
+  Update return value in old_function
+</example>
+
+<example>
 clarification_needed:
   The file src/utils.py was not provided. Please share its contents
   so I can add the requested helper function.
@@ -107,6 +121,9 @@ $(git ls-files)
 \`\`\`
 
 Never modify tests unless the instructions specifically say to.
+
+When editing existing files, prefer using file_patch over file_contents to reduce token usage.
+In file_patch, always include 2-3 lines of surrounding context in the 'find' field to ensure unique matches.
 EOF
 }
 
@@ -130,20 +147,6 @@ function __GENIUS__git_diff() {
     else
         echo "$fulldiff"
     fi
-}
-
-function __GENIUS__cleandiff() {
-    awk '
-/^---/ || /^\+\+\+/ { next }
-/^@@/ {
-    split($2,old,","); oline=int(substr(old[1],2))*-1
-    split($3,new,","); nline=int(substr(new[1],2))-1
-    next
-}
-/^-/ { printf "- %3d  │ %s\n", ++oline, substr($0,2); next }
-/^\+/ { printf "+ %3d  │ %s\n", ++nline, substr($0,2); next }
-/^ / { ++oline; printf "  %3d  │ %s\n", ++nline, substr($0,2) }
-'
 }
 
 __GENIUS__RESPONSE_SCHEMA="$__GENIUS__SCRIPT_DIR/geni-response-schema.yaml"
@@ -196,29 +199,40 @@ function geni_write_files() {
 
         mkdir -p "$(dirname "$path")"
 
-        # compute the new file contents;
-        # if the contents was given in the response, just extract from json;
-        # else (a diff was given in the response), then we compute file_contents from the diff
+        # determine if this is a full write or a patch
         if [ "$(echo "$input" | yq -r ".files_to_write[$i].file_contents")" != "null" ]; then
+            # Full file write
             file_contents=$(echo "$input" | yq -r ".files_to_write[$i].file_contents")
-        else
-            patch_contents=$(echo "$input" | yq -r ".files_to_write[$i].patch_contents")
-            file_contents=$(echo "$patch_contents" | patch --fuzz=3 --output=- "$path" 2>/dev/null)
-            if [ $? -ne 0 ]; then
-                file_contents=$(wiggle --merge "$path" <(echo "$patch_contents") 2>/dev/null)
-                if [ $? -ne 0 ]; then
-                    error "wiggle failed to apply patch for '$path'"
-                    has_failure=true
-                else
-                    warning "patch failed for '$path', wiggle patch succeeded"
+            
+            # apply the changes
+            if [ -e "$path" ]; then
+                # backup $path if dirty
+                dirty=false
+                if ! git ls-files --error-unmatch "$path" 2>/dev/null >/dev/null; then
+                    warning "'$path' not in repo."
+                    dirty=true
+                fi
+                if ! (git diff --quiet "$path" && git diff --cached --quiet "$path") ; then
+                    warning "'$path' has uncommitted changes"
+                    dirty=true
+                fi
+                if [ "$dirty" = "true" ]; then
+                    temp=$(mktemp)
+                    cat "$path" > "$temp"
+                    warning "existing file will be overwritten"
+                    warning "backup created at '$temp'"
                 fi
             fi
-        fi
 
-        # apply the changes
-        if [ -e "$path" ]; then
-            action='edited'
-            diff_output=$(diff -u "$path" <(echo "$file_contents") | __GENIUS__cleandiff)
+            echo "$file_contents" > "$path"
+            git add "$path"
+        elif [ "$(echo "$input" | yq -r ".files_to_write[$i].file_patch")" != "null" ]; then
+            # Patch operation
+            if [ ! -e "$path" ]; then
+                error "cannot patch '$path': file does not exist"
+                has_failure=true
+                continue
+            fi
 
             # backup $path if dirty
             dirty=false
@@ -237,15 +251,14 @@ function geni_write_files() {
                 warning "backup created at '$temp'"
             fi
 
-            # edit file
-            echo "$file_contents" > "$path"
-            git add "$path"
-        else
-            action='created'
-            diff_output=$(diff -u /dev/null <(echo "$file_contents") | __GENIUS__cleandiff)
-
-            # create file
-            echo "$file_contents" > "$path"
+            # Extract patches and apply
+            patches_json=$(echo "$input" | yq -r ".files_to_write[$i].file_patch | tojson")
+            if ! echo "$patches_json" | python3 "$__GENIUS__SCRIPT_DIR/patch_file.py" "$path" 2>"$geni_dir"/patch_stderr; then
+                error "patch failed for '$path'"
+                cat "$geni_dir"/patch_stderr >&2
+                has_failure=true
+                continue
+            fi
             git add "$path"
         fi
     done
@@ -331,8 +344,8 @@ function geni_tee() {
                 line_counter=0
             fi
             
-            # Detect patch_contents (patch)
-            if [[ "$line" =~ ^[[:space:]]{0,4}patch_contents: ]]; then
+            # Detect file_patch (patch)
+            if [[ "$line" =~ ^[[:space:]]{0,4}file_patch: ]]; then
                 printf " $current_path(patch)..." >&2
             fi
         fi

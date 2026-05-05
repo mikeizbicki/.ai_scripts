@@ -7,15 +7,42 @@ oneOf:
         minItems: 1
         items:
           type: object
-          required: ["path", "file_contents"]
-          properties:
-            path:
-              type: string
-              description: Relative path, no leading / or .. traversal.
-            file_contents:
-              type: string
-              description:
-                The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them.
+          required: ["path"]
+          oneOf:
+            - required: ["file_contents"]
+              properties:
+                path:
+                  type: string
+                  description: Relative path, no leading / or .. traversal.
+                file_contents:
+                  type: string
+                  description:
+                    The exact contents of the file to write. If editing a file, you must make as few changes as possible in order to accomplish the specified task. For example, you must preserve any comments or poorly formatted code that is present in the original file unless specifically asked to change them.
+            - required: ["file_patch"]
+              properties:
+                path:
+                  type: string
+                  description: Relative path, no leading / or .. traversal.
+                file_patch:
+                  type: array
+                  minItems: 1
+                  description: |
+                    A list of find/replace operations to apply to the file in order.
+                    Each operation finds exact text and replaces it with new text.
+                    IMPORTANT: Include 2-3 lines of surrounding context in the 'find' field to ensure unique matches.
+                    The find text must match exactly ONE location in the file.
+                  items:
+                    type: object
+                    required: ["find", "replace"]
+                    properties:
+                      find:
+                        type: string
+                        description: |
+                          The exact text to find in the file. Must match exactly one location.
+                          Include 2-3 lines of context before and after the changed lines to ensure uniqueness.
+                      replace:
+                        type: string
+                        description: The exact text to replace the found text with.
       message:
         type: string
         description:
