@@ -1,21 +1,14 @@
-#!/bin/bash
 # This file should be sourced from .bashrc
+# All global vars/functions should be prefixed with geni_.
+# This ensures that there will be no name conflicts.
 
-# NOTE:
-# All variables should be prefixed with __GENIUS__.
-# This ensures that there will be no name conflicts with other variables when sourcing into the .bashrc file.
-
-__GENIUS__MAX_FILE_LINES=300
-__GENIUS__MAX_DISPLAY_SIZE=20
-
-# Store absolute path of geni.sh at source time
-__GENIUS__SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# ensure llm_utils.sh available
-source "$__GENIUS__SCRIPT_DIR/llm_utils.sh"
+# source the llm_utils.sh helper script
+geni_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$geni_script_dir/llm_utils.sh"
 
 # geni is the main public interface
 function geni() {
+
     ####################
     # STEP1: ensure git repo sane
     ####################
@@ -34,7 +27,9 @@ function geni() {
     ####################
     (
         # we store all intermediate results in the .git/.geni folder;
-        # this allows inspecting the results if needed to debug errors
+        # this allows inspecting the results if needed to debug errors;
+        # the incantation below gets the .git folder for the current repo
+        # even if we are currently in a subfolder
         geni_dir="$(git rev-parse --git-dir)"/.geni
         mkdir -p "$geni_dir"
 
@@ -49,7 +44,7 @@ function geni() {
         err_file="$geni_dir"/llm_stderr
         if llm_wrapper -s "$(geni_prompt)" "$@" 2>"$err_file" | geni_tee > "$out_file"; then
             printf "${__ORANGE}$(cat "$err_file")${__RESET}\n"
-            cat "$out_file" | python3 "$__GENIUS__SCRIPT_DIR/fuzzy_yaml_fix.py" | geni_write_files
+            cat "$out_file" | fuzzy_yaml_fix | geni_process_yaml
         else
             error 'llm failed'
             printf "${__RED}$(sed -e 's/Error:/ERROR:/' "$err_file")${__RESET}\n" >&2
@@ -61,13 +56,13 @@ function geni() {
 ################################################################################
 # construct the system prompt
 ################################################################################
+geni_response_schema="$(cat "$geni_script_dir/geni-response-schema.yaml")"
 
 function geni_prompt() {
     # NOTE:
     # this is a function and not a variable so that it gets rebuilt on every invokation;
     # this for example ensures that the result of `git ls-files` is current
     # this is global so that it is easy to inspect the value of the prompt
-    local schema="$(cat "$__GENIUS__SCRIPT_DIR/geni-response-schema.yaml")"
     if [ -s "AGENTS.md" ]; then
         agents_prompt="
 $ cat AGENTS.md
@@ -78,7 +73,7 @@ $(cat AGENTS.md)
 You are a coding agent. You will write files to achieve the tasks that the user specifies in their queries. Your response should always be in pure YAML and conform to the following schema:
 
 <schema>
-$schema
+$geni_response_schema
 </schema>
 
 Do not include any markdown codeblocks or other explanations.
@@ -131,27 +126,7 @@ EOF
 # process the output of the LLM
 ################################################################################
 
-function __GENIUS__git_diff() {
-    fulldiff=$(git show HEAD --format="" --stat --patch | awk '
-/^ [^ ].*\|.*[+-]/ { stats[$1] = $0; next }
-/^ *[0-9]+ file/ { next }
-/^diff --git/ { file = $NF; sub(/b\//, "", file); if (stats[file]) print "\n" stats[file]; next }
-/^index |^---|^\+\+\+/ { next }
-/^@@ / { split($0, a, /[-+@ ,]+/); n = a[4]; next }
-/^-/  { printf "%4d -%s\n", n, substr($0,2) }
-/^\+/ { printf "%4d +%s\n", n++, substr($0,2) }
-/^ / { printf "%4d  %s\n", n++, substr($0,2) }
-')
-    if [ "$(echo "$fulldiff" | wc -l)" -gt "$__GENIUS__MAX_DISPLAY_SIZE" ]; then
-        git show HEAD --format="" --stat
-    else
-        echo "$fulldiff"
-    fi
-}
-
-__GENIUS__RESPONSE_SCHEMA="$__GENIUS__SCRIPT_DIR/geni-response-schema.yaml"
-
-function geni_write_files() {
+function geni_process_yaml() {
     input=$(cat)
     geni_dir="$(git rev-parse --git-dir)"/.geni
 
@@ -164,15 +139,15 @@ function geni_write_files() {
         error 'llm failed to generate valid YAML'
         hint 'usually the YAML is almost valid, but has a minor syntax error'
         hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
-        hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
+        hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_process_yaml'\`"
         return 1
     fi
 
     # validate schema
-    if ! echo "$input" | yq '.' | jsonschema <(yq '.' $__GENIUS__RESPONSE_SCHEMA) 2>"$geni_dir"/check-jsonschema_stderr; then
+    if ! echo "$input" | yq '.' | jsonschema <(yq '.' <(echo "$geni_response_schema") ) 2>"$geni_dir"/check-jsonschema_stderr; then
         error 'llm response failed jsonschema check'
         hint "the file '$geni_dir/llm_stdout' contains the raw llm output"
-        hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_write_files'\`"
+        hint "you can manually correct the file, then run \`cat '$geni_dir/llm_stdout' | geni_process_yaml'\`"
         return 1
     fi
 
@@ -253,7 +228,7 @@ function geni_write_files() {
 
             # Extract patches and apply
             patches_json=$(echo "$input" | yq -r ".files_to_write[$i].file_patch | tojson")
-            if ! echo "$patches_json" | python3 "$__GENIUS__SCRIPT_DIR/patch_file.py" "$path" 2>"$geni_dir"/patch_stderr; then
+            if ! echo "$patches_json" | patch_file "$path" 2>"$geni_dir"/patch_stderr; then
                 error "patch failed for '$path'"
                 cat "$geni_dir"/patch_stderr >&2
                 has_failure=true
@@ -277,9 +252,9 @@ function geni_write_files() {
         if [ $? -ne 0 ]; then
             error 'git commit failed for unknown reason'
             warning 'sanitize repo before proceeding'
-        return 1
+            return 1
         else
-            __GENIUS__git_diff
+            git show HEAD --format="" --stat
         fi
     else
         error 'not running git commit'

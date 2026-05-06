@@ -4,7 +4,7 @@ set -e
 
 # source the geni.sh script
 scriptpath=$(readlink -f "$0")
-genipath="$(dirname "$scriptpath")/../geni.sh"
+genipath="$(dirname "$scriptpath")/../shell/geni.sh"
 source "$genipath"
 
 # move to a temp folder
