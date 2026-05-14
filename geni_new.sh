@@ -46,9 +46,14 @@ function geni() {
     # We pass the user's request as positional args to llm.
     # stderr is captured separately so we can show it only on failure.
     echo "geni: calling llm..." >&2
-    if ! llm -s "$(geni_prompt)" \
-             "$@" \
-             >"$patch_file" 2>"$err_file"; then
+    # Use a subshell so `set -o pipefail` doesn't leak into the caller's shell.
+    if ! (
+        set -o pipefail
+        llm -s "$(geni_prompt)" \
+            "$@" \
+            2>"$err_file" \
+        | geni_tee >"$patch_file"
+    ); then
         echo "geni: error: llm invocation failed" >&2
         echo "----- llm stderr -----" >&2
         cat "$err_file" >&2
@@ -149,4 +154,78 @@ Use the following information to help you write the code:
 $ git ls-files
 $(git ls-files)
 EOF
+}
+
+
+# geni_tee streams the llm output through to stdout while printing a
+# human-readable progress indicator to stderr. It is adapted from the
+# yaml-oriented version in shell/geni.sh to instead understand the
+# unified-diff / mbox format that this version of geni uses.
+function geni_tee() {
+    printf "request sent... " >&2
+
+    local first_line=true
+    local output=""
+    local current_path=""
+    local in_hunk=false
+    local line_counter=0
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "$first_line" == true ]]; then
+            printf "receiving..." >&2
+            first_line=false
+        fi
+
+        output+="$line"$'\n'
+
+        # NOTE:
+        # the code below "dynamically parses" the unified diff output;
+        # it is not fully correct, but is close enough for a progress display.
+        # we do not use a full diff parser because we want to stream the
+        # progress as the data arrives. Any misparse here affects only the
+        # progress indicator, not the final patch that gets applied.
+
+        # Detect a new file in the diff: "diff --git a/foo b/foo"
+        if [[ "$line" =~ ^diff\ --git\ a/(.+)\ b/(.+)$ ]]; then
+            current_path="${BASH_REMATCH[2]}"
+            in_hunk=false
+            line_counter=0
+            continue
+        fi
+
+        # Detect a new-file marker: "--- /dev/null" on the previous-style line
+        # means the next +++ b/path is a brand new file.
+        if [[ "$line" =~ ^\+\+\+\ b/(.+)$ ]]; then
+            current_path="${BASH_REMATCH[1]}"
+            continue
+        fi
+
+        # Detect "new file mode" marker -> announce a full new file
+        if [[ "$line" =~ ^new\ file\ mode ]]; then
+            printf " $current_path(new)..." >&2
+            in_hunk=false
+            line_counter=0
+            continue
+        fi
+
+        # Detect a hunk header: "@@ -1,2 +1,3 @@"
+        if [[ "$line" =~ ^@@ ]]; then
+            if [[ "$in_hunk" == false && -n "$current_path" ]]; then
+                printf " $current_path(patch)..." >&2
+            fi
+            in_hunk=true
+            line_counter=0
+            continue
+        fi
+
+        # Print a dot every 10 lines while we're inside a hunk / file body.
+        if [[ -n "$current_path" ]]; then
+            ((line_counter++))
+            if (( line_counter % 10 == 0 )); then
+                printf "." >&2
+            fi
+        fi
+    done
+    printf "\n" >&2
+    printf '%s' "$output"
 }
