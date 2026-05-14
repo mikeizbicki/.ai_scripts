@@ -73,10 +73,13 @@ Rules:
 - The Subject line MUST start with `[geni] `.
 - Use standard unified diff syntax with `--- a/...` and `+++ b/...` headers.
 - For new files use `--- /dev/null` and `+++ b/path`.
+    - You must also specify the mode of the new file
 - For deleted files use `--- a/path` and `+++ /dev/null`.
 - Hunk line numbers do not have to be exact (git will recount them),
   but the context lines must be recognizable in the current file.
 - Include 2-3 lines of unchanged context around each change.
+    - These context lines must exactly match the original document.
+      (Including whitespace, quotation marks, and other punctuation.)
 - Prefer small, focused patches.
 EOF
 )"
@@ -149,12 +152,13 @@ EOF
     #
     # On failure, `git am` leaves the repo in a "middle of am" state;
     # we abort it so the user can retry cleanly.
-    if ! git am --ignore-whitespace --recount "$patch_file"; then
+    if ! git-am-recount "$patch_file"; then
+    #if ! git am --ignore-whitespace -C0 "$patch_file"; then
         echo "geni: error: git am failed to apply the patch" >&2
         echo "geni: aborting the failed am so the repo is clean again" >&2
         git am --abort 2>/dev/null
         echo "geni: inspect the patch at: $patch_file" >&2
-        echo "geni: you can manually fix it and re-run: git am --ignore-whitespace --recount '$patch_file'" >&2
+        echo "geni: you can manually fix it and re-run: git am --ignore-whitespace -C0 '$patch_file'" >&2
         return 1
     fi
 
@@ -164,4 +168,22 @@ EOF
     # Show a short summary of the commit we just made.
     echo "geni: applied successfully" >&2
     git show HEAD --stat --format='%h %s'
+}
+
+git-am-recount() {
+    local mbox="$1" tmp
+    tmp=$(mktemp -d)
+    git mailsplit -b -o"$tmp" "$mbox" >/dev/null
+    for msg in "$tmp"/[0-9]*; do
+        git mailinfo "$tmp/m" "$tmp/p" < "$msg" > "$tmp/i"
+        git apply --recount --ignore-whitespace -C0 "$tmp/p" || { rm -rf "$tmp"; return 1; }
+        git add -A
+        local a e d s
+        a=$(sed -n 's/^Author: //p' "$tmp/i")
+        e=$(sed -n 's/^Email: //p' "$tmp/i")
+        d=$(sed -n 's/^Date: //p' "$tmp/i")
+        s=$(sed -n 's/^Subject: //p' "$tmp/i")
+        { echo "$s"; echo; cat "$tmp/m"; } | git commit -F - --author="$a <$e>" --date="$d"
+    done
+    rm -rf "$tmp"
 }
