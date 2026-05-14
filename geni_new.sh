@@ -3,20 +3,6 @@
 # This file should be sourced from .bashrc.
 # It defines a single function `geni` which is a minimal coding agent
 # built as a thin wrapper around simonw's `llm` cli tool and `git am`.
-#
-# Design overview:
-#   1. Ask the llm to produce a patch in `git format-patch` (mbox) format.
-#   2. Save the raw llm output to a file under .git/ so it can be inspected.
-#   3. Hand the file to `git am` which both applies the patch
-#      *and* creates the commit (with author/date/subject) in one step.
-#
-# Why mbox instead of a custom YAML schema?
-#   - mbox is the standard git interchange format for patches+commits.
-#   - `git am --ignore-whitespace --recount` is very forgiving of the
-#     small mistakes that llms commonly make (off-by-one line numbers,
-#     whitespace drift, etc).
-#   - One tool (`git am`) replaces the entire custom YAML parser,
-#     patcher, and committer pipeline.
 
 function geni() {
 
@@ -67,7 +53,7 @@ The response MUST follow this exact structure:
 
     From: Geni <geni@localhost>
     Date: <RFC 2822 date>
-    Subject: [geni] <imperative summary, <50 chars>
+    Subject: [geni] imperative summary, <50 chars>
 
     <optional longer explanation paragraph>
 
@@ -115,7 +101,7 @@ EOF
     ####################
     # STEP 5: invoke the llm
     ####################
-    # We pass the user's request as positional args (like the original geni).
+    # We pass the user's request as positional args to llm.
     # stderr is captured separately so we can show it only on failure.
     #
     # NOTE: the exact flag to warm-start a response varies between llm
@@ -147,8 +133,8 @@ EOF
     ####################
     # STEP 6: show the patch to the user
     ####################
-    # Always print what we are about to apply; this is invaluable when
-    # `git am` fails and the student needs to figure out why.
+    # Always print what we are about to apply.
+    # Wehn `git am` fails this helps the user figure out why.
     echo "geni: generated patch saved to $patch_file" >&2
     echo "----- patch -----" >&2
     cat "$patch_file" >&2
@@ -175,8 +161,7 @@ EOF
     ####################
     # STEP 8: success
     ####################
-    # Show a short summary of the commit we just made, mirroring the
-    # behavior of the original geni implementation.
+    # Show a short summary of the commit we just made.
     echo "geni: applied successfully" >&2
     git show HEAD --stat --format='%h %s'
 }
