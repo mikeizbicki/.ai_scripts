@@ -45,19 +45,14 @@ function geni() {
     ####################
     # We pass the user's request as positional args to llm.
     # stderr is captured separately so we can show it only on failure.
-    echo "geni: calling llm..." >&2
     # Use a subshell so `set -o pipefail` doesn't leak into the caller's shell.
     if ! (
         set -o pipefail
-        llm -s "$(geni_prompt)" \
+        llm_wrapper -s "$(geni_prompt)" \
             "$@" \
-            2>"$err_file" \
         | geni_tee >"$patch_file"
     ); then
         echo "geni: error: llm invocation failed" >&2
-        echo "----- llm stderr -----" >&2
-        cat "$err_file" >&2
-        echo "----------------------" >&2
         return 1
     fi
 
@@ -80,12 +75,11 @@ function geni() {
     # STEP 5: success
     ####################
     # Show a short summary of the commit we just made.
-    echo "geni: applied successfully" >&2
     git show HEAD --stat --format='%h %s'
 }
 
 
-# git apply suppurts a --recount flag that makes patches more flexible;
+# git apply supports a --recount flag that makes patches more flexible;
 # git am does not support the flag;
 # the code below is a re-implementation of git am that does support the flag
 git-am-recount() {
@@ -101,7 +95,7 @@ git-am-recount() {
         e=$(sed -n 's/^Email: //p' "$tmp/i")
         d=$(sed -n 's/^Date: //p' "$tmp/i")
         s=$(sed -n 's/^Subject: //p' "$tmp/i")
-        { echo "$s"; echo; cat "$tmp/m"; } | git commit -F - --author="$a <$e>" --date="$d"
+        { echo "$s"; echo; cat "$tmp/m"; } | git commit --quiet -F - --author="$a <$e>" --date="$d"
     done
     rm -rf "$tmp"
 }
@@ -162,7 +156,7 @@ EOF
 # yaml-oriented version in shell/geni.sh to instead understand the
 # unified-diff / mbox format that this version of geni uses.
 function geni_tee() {
-    printf "request sent... " >&2
+    printf "${__ORANGE}request sent... " >&2
 
     local first_line=true
     local output=""
