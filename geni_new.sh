@@ -85,7 +85,18 @@ function geni() {
 git-am-recount() {
     local mbox="$1" tmp
     tmp=$(mktemp -d)
-    git mailsplit -b -o"$tmp" "$mbox" >/dev/null
+    # LLMs sometimes emit reasoning/preamble before the actual patch.
+    # Strip anything before the first 'From:' header so mailsplit can
+    # recognize the message. We do this on a copy so $mbox (the raw LLM
+    # output) is preserved for debugging.
+    sed -n '/^From:/,$p' "$mbox" > "$tmp/cleaned.mbox"
+    local count
+    count=$(git mailsplit -b -o"$tmp" "$tmp/cleaned.mbox")
+    if [[ -z "$count" || "$count" -eq 0 ]]; then
+        echo "git-am-recount: no valid mbox messages found in patch" >&2
+        rm -rf "$tmp"
+        return 1
+    fi
     for msg in "$tmp"/[0-9]*; do
         git mailinfo "$tmp/m" "$tmp/p" < "$msg" > "$tmp/i"
         git apply --recount --ignore-whitespace -C0 "$tmp/p" || { rm -rf "$tmp"; return 1; }
@@ -130,6 +141,7 @@ The response MUST follow this exact structure:
 Rules:
 - Do NOT wrap your response in markdown code fences.
 - Do NOT include any prose before or after the patch.
+- The first line of your response MUST begin with 'From:'. Do not output any reasoning, explanation, or whitespace before it.
 - The Subject line MUST start with '[geni] '.
 - Use standard unified diff syntax with '--- a/...' and '+++ b/...' headers.
 - For new files use '--- /dev/null' and '+++ b/path'.
