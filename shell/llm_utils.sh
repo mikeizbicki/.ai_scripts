@@ -4,6 +4,7 @@
 # this is a CSV format where the columns are:
 # model_name, input_cost (per 1_000_000 tokens), output_cost (per 1_000_000 tokens)
 MODEL_PRICES="
+opus-4-7        , 5.00   , 25.00
 opus-4.7        , 5.00   , 25.00
 opus-4.6        , 5.00   , 25.00
 opus-4.5        , 5.00   , 25.00
