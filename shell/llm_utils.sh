@@ -124,7 +124,7 @@ function llm_wrapper() {(
     # Now we do the actual interesting LLM stuff
     ####################
 
-    system_prompt="Keep your response short, between 1-20 lines. Focus on a high signal to noise ratio (audience has math/cs phd). If the question is about a computer, respond for the following system: $(uname -a). Only if applicable: mention security implications."
+    system_prompt="Keep your response short, between 1-20 lines. Focus on a high signal to noise ratio (audience has math/cs phd). If the question is about a computer, respond for the following system: $(uname -a)."
 
     # Capture stderr while preserving stdout
     local stderr_file=$(mktemp)
