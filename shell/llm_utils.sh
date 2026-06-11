@@ -4,6 +4,8 @@
 # this is a CSV format where the columns are:
 # model_name, input_cost (per 1_000_000 tokens), output_cost (per 1_000_000 tokens)
 MODEL_PRICES="
+fable-5         , 10.00  , 50.00
+opus-4-8        , 5.00   , 25.00
 opus-4-7        , 5.00   , 25.00
 opus-4.7        , 5.00   , 25.00
 opus-4.6        , 5.00   , 25.00
@@ -25,7 +27,8 @@ groq            , 0.00   ,  0.00
 
 alias haiku="llm_interactive -m claude-haiku-4.5"
 alias sonnet="llm_interactive -m claude-sonnet-4.6"
-alias opus="llm_interactive -m claude-opus-4.7"
+alias opus="llm_interactive -m claude-opus-4.8"
+alias fable="llm_interactive -m openrouter/anthropic/claude-fable-5"
 alias gpt="llm_interactive -m gpt-5.5"
 alias gpt-mini="llm_interactive -m gpt-5-mini"
 alias gpt-nano="llm_interactive -m gpt-5-nano"
@@ -120,7 +123,7 @@ function llm_wrapper() {(
     # Now we do the actual interesting LLM stuff
     ####################
 
-    system_prompt="Keep your response short, between 1-20 lines. Focus on a high signal to noise ratio. If the question is about a computer, respond for the following system: $(uname -a)."
+    system_prompt="Keep your response short, between 1-20 lines. Focus on a high signal to noise ratio (audience has math/cs phd). If the question is about a computer, respond for the following system: $(uname -a). Mention security implications against nation-state threat actors if applicable."
 
     # Capture stderr while preserving stdout
     local stderr_file=$(mktemp)
