@@ -5,6 +5,7 @@
 # model_name, input_cost (per 1_000_000 tokens), output_cost (per 1_000_000 tokens)
 MODEL_PRICES="
 fable-5         , 10.00  , 50.00
+opus-4.8        , 5.00   , 25.00
 opus-4-8        , 5.00   , 25.00
 opus-4-7        , 5.00   , 25.00
 opus-4.7        , 5.00   , 25.00
@@ -123,7 +124,7 @@ function llm_wrapper() {(
     # Now we do the actual interesting LLM stuff
     ####################
 
-    system_prompt="Keep your response short, between 1-20 lines. Focus on a high signal to noise ratio (audience has math/cs phd). If the question is about a computer, respond for the following system: $(uname -a). Mention security implications against nation-state threat actors if applicable."
+    system_prompt="Keep your response short, between 1-20 lines. Focus on a high signal to noise ratio (audience has math/cs phd). If the question is about a computer, respond for the following system: $(uname -a). Only if applicable: mention security implications."
 
     # Capture stderr while preserving stdout
     local stderr_file=$(mktemp)
