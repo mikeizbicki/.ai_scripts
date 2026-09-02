@@ -34,6 +34,7 @@ alias gpt="llm_interactive -m gpt-5.5"
 alias gpt-mini="llm_interactive -m gpt-5-mini"
 alias gpt-nano="llm_interactive -m gpt-5-nano"
 alias groq="llm_interactive -m groq/llama-3.3-70b-versatile"
+alias qwen="llm_interactive -m groq-qwen"
 
 function llm_interactive() {
     # only do special coloring/clipboard copy if the output is a terminal
