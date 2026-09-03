@@ -5,16 +5,21 @@
 # model_name, input_cost (per 1_000_000 tokens), output_cost (per 1_000_000 tokens)
 MODEL_PRICES="
 fable-5         , 10.00  , 50.00
+opus-5          , 5.00   , 25.00
 opus-4.8        , 5.00   , 25.00
 opus-4-8        , 5.00   , 25.00
 opus-4-7        , 5.00   , 25.00
 opus-4.7        , 5.00   , 25.00
 opus-4.6        , 5.00   , 25.00
 opus-4.5        , 5.00   , 25.00
-sonnet-4.6      , 1.50   ,  7.50
-sonnet-4.5      , 1.50   ,  7.50
-sonnet-4.0      , 1.50   ,  7.50
-haiku-4.5       , 0.50   ,  2.50
+sonnet-5        , 2.00   , 10.00
+sonnet-4.6      , 3.00   , 15.00
+sonnet-4.5      , 3.00   , 15.00
+sonnet-4.0      , 3.00   , 15.00
+haiku-4.5       , 1.00   ,  5.00
+gpt-5.6-sol     , 4.00   , 10.00
+gpt-5.6-terra   , 2.00   ,  5.00
+gpt-5.6-luna    , 0.20   ,  0.50
 gpt-5.5         , 5.00   , 30.00
 gpt-5.4         , 2.50   , 15.00
 gpt-5.2	        , 1.75	 , 14.00
@@ -27,10 +32,10 @@ groq            , 0.00   ,  0.00
 "
 
 alias haiku="llm_interactive -m claude-haiku-4.5"
-alias sonnet="llm_interactive -m claude-sonnet-4.6"
-alias opus="llm_interactive -m claude-opus-4.8"
-alias fable="llm_interactive -m openrouter/anthropic/claude-fable-5"
-alias gpt="llm_interactive -m gpt-5.5"
+alias sonnet="llm_interactive -m claude-sonnet-5"
+alias opus="llm_interactive -m claude-opus-5"
+alias fable="llm_interactive -m openrouter/anthropic/claude-fable-5.1"
+alias gpt="llm_interactive -m gpt-5.6-sol"
 alias gpt-mini="llm_interactive -m gpt-5-mini"
 alias gpt-nano="llm_interactive -m gpt-5-nano"
 alias groq="llm_interactive -m groq/llama-3.3-70b-versatile"
